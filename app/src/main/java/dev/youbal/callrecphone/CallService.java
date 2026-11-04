@@ -39,6 +39,7 @@ public final class CallService extends InCallService implements CallRecorder.Lis
     private Call recordingCall;
     private boolean recording;
     private boolean localAccessRevoked;
+    private boolean stopBuiltinAfterRecording;
 
     @Override public void onCreate() {
         super.onCreate(); instance = this; PhoneApp app = PhoneApp.get(this);
@@ -165,17 +166,23 @@ public final class CallService extends InCallService implements CallRecorder.Lis
         if (Build.VERSION.SDK_INT >= 37 && !hasLocalNetworkPermission) {
             if (!localAccessRevoked) {
                 localAccessRevoked = true;
-                if (BuiltinAccess.state(this) == BuiltinAccess.State.RUNNING) BuiltinAccess.stop(this);
                 app.prefs.lastStatus("Local network access was revoked. Built-in Wireless Debugging access is being stopped.");
             }
             if (recorderMode == CallRecorder.Mode.BUILTIN) {
                 if (recordingCall != null) {
+                    // Let the recorder flush and close the audio file before QUIT stops the shell process.
+                    stopBuiltinAfterRecording = true;
                     recorder.onCallEnded();
                     recordingCall = null;
+                } else {
+                    stopBuiltinAfterRecording = false;
+                    BuiltinAccess.stop(this);
                 }
                 consentedCalls.clear();
                 attempted.clear();
                 return;
+            } else if (BuiltinAccess.state(this) == BuiltinAccess.State.RUNNING) {
+                BuiltinAccess.stop(this);
             }
         } else {
             localAccessRevoked = false;
@@ -224,10 +231,17 @@ public final class CallService extends InCallService implements CallRecorder.Lis
         recorder.onCallActive(numberOf(call), incoming(call) ? CallRecorder.IN : CallRecorder.OUT);
     }
 
+    private void stopBuiltinIfPending() {
+        if (stopBuiltinAfterRecording) {
+            stopBuiltinAfterRecording = false;
+            BuiltinAccess.stop(this);
+        }
+    }
+
     private void status(String text) { PhoneApp app = PhoneApp.get(this); app.prefs.lastStatus(text); changed(); }
     @Override public void onRecordingStarted() { recording = true; status("Recording started; you confirmed everyone agreed"); }
     @Override public void onRecordingSaved(String path, String source, int seconds, int audiblePercent) {
-        recording = false; recordingCall = null; status("Saved a " + seconds + " s recording"); notifySaved();
+        recording = false; recordingCall = null; status("Saved a " + seconds + " s recording"); notifySaved(); stopBuiltinIfPending();
     }
     @Override public void onRecordingSilent(String path, String source, int seconds, int audiblePercent) {
         recording = false;
@@ -238,6 +252,7 @@ public final class CallService extends InCallService implements CallRecorder.Lis
         recordingCall = null;
         new File(path).delete();
         status("The recording contained no usable audio and was discarded. Check the selected recording engine.");
+        stopBuiltinIfPending();
     }
     @Override public void onShizukuUnavailable() {
         recording = false;
@@ -247,6 +262,7 @@ public final class CallService extends InCallService implements CallRecorder.Lis
         }
         recordingCall = null;
         status("Recording access is unavailable, so this call was not recorded. Start Shizuku or built-in Wireless Debugging access in Settings.");
+        stopBuiltinIfPending();
     }
     @Override public void onError(String message) {
         recording = false;
@@ -256,6 +272,7 @@ public final class CallService extends InCallService implements CallRecorder.Lis
         }
         recordingCall = null;
         status("Recording failed: " + message);
+        stopBuiltinIfPending();
     }
     private void notifySaved() { for (Runnable r : new ArrayList<>(PhoneApp.get(this).recordingListeners)) r.run(); }
 
