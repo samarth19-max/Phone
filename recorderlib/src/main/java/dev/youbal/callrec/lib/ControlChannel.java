@@ -6,6 +6,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * How the app talks to the recorder process it started as the shell user: a few small files in a folder
@@ -48,7 +49,7 @@ final class ControlChannel {
         validateRequest(verb, args);
         synchronized (REQUEST_LOCK) {
             dir.mkdirs();
-            String id = Long.toString(System.nanoTime(), 36);
+            String id = UUID.randomUUID().toString().replace("-", "");
             List<String> lines = new ArrayList<>();
             lines.add(token); lines.add(id); lines.add(verb);
             for (String a : args) lines.add(clean(a));
