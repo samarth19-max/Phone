@@ -43,6 +43,11 @@ public final class BuiltinAccess {
         void onDone(boolean ok, String message);
     }
 
+    /** Completion callback for a startup recovery reset. */
+    public interface ResetListener {
+        void onDone(boolean ok);
+    }
+
     /** Called when the phone's "pair with code" dialog opens or closes. */
     public interface PairingListener {
         /** The dialog is open and listening on this port. */
@@ -79,6 +84,31 @@ public final class BuiltinAccess {
 
     public static boolean paired(Context context) {
         return new File(context.getFilesDir(), PAIRED_FILE).isFile();
+    }
+
+    /**
+     * Stop any capture left by a previous host-process instance before the dialer accepts a new recording.
+     * This uses the file control channel and does not need a new ADB socket or network permission.
+     */
+    public static void resetCapture(Context context, ResetListener listener) {
+        final Context app = context.getApplicationContext();
+        new Thread(() -> {
+            if (!running(app)) {
+                listener.onDone(true);
+                return;
+            }
+            ControlChannel control = channel(app);
+            if (control == null) {
+                listener.onDone(false);
+                return;
+            }
+            try {
+                String response = control.request("RESET", 12_000);
+                listener.onDone(response != null && response.startsWith("reset"));
+            } catch (Exception e) {
+                listener.onDone(false);
+            }
+        }, "callrec-recovery").start();
     }
     /** Renew the host-process lease while the app is actively capturing a call. */
     public static void heartbeat(Context context) {
