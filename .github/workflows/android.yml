@@ -69,6 +69,11 @@ jobs:
           grep -Fq 'ShellCommand.quote(apk)' "$builtin"
           grep -Fq 'RecordingPath.isAllowedOutputDir(dir, outputDir)' recorderlib/src/main/java/dev/youbal/callrec/lib/ShellServer.java
           grep -Fq 'shellRejectsUnknownCommandsAndWrongArgumentCounts' "$tests"
+          grep -Fq 'HmacSHA256' "$channel"
+          grep -Fq 'MAX_COMMAND_AGE_MS' "$channel"
+          grep -Fq 'shellRejectsTamperedAndReplayedCommands' "$tests"
+          grep -Fq 'shellRejectsExpiredAuthenticatedCommands' "$tests"
+          grep -Fq 'ownerLeaseDoesNotWriteTheSecretIntoSharedStorage' "$tests"
           grep -Fq 'escapesSingleQuotesWithoutLeavingTheArgument' recorderlib/src/test/java/dev/youbal/callrec/lib/ShellCommandTest.java
           grep -Fq 'acceptsOnlySiblingRecordingsDirectory' recorderlib/src/test/java/dev/youbal/callrec/lib/RecordingPathTest.java
       - name: Verify patched cryptography dependencies
