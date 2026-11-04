@@ -116,6 +116,7 @@ public final class CallService extends InCallService implements CallRecorder.Lis
                 && call.getState() == Call.STATE_ACTIVE
                 && (call.getChildren() == null || call.getChildren().isEmpty())
                 && recordingCall == null
+                && !recording
                 && !consentedCalls.contains(call);
     }
 
@@ -220,7 +221,7 @@ public final class CallService extends InCallService implements CallRecorder.Lis
     }
 
     private void status(String text) { PhoneApp app = PhoneApp.get(this); app.prefs.lastStatus(text); changed(); }
-    @Override public void onRecordingStarted() { recording = true; status("Recording this call — everyone was confirmed"); }
+    @Override public void onRecordingStarted() { recording = true; status("Recording started; you confirmed everyone agreed"); }
     @Override public void onRecordingSaved(String path, String source, int seconds, int audiblePercent) {
         recording = false; recordingCall = null; status("Saved a " + seconds + " s recording"); notifySaved();
     }
