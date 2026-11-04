@@ -21,8 +21,9 @@ import javax.crypto.spec.SecretKeySpec;
  *
  * <pre>
  * cmd    id / timestamp / verb / args / HMAC  written by the app, deleted by the server when it takes it
- * res    id / answer...                written by the server
- * alive  a time in millis              rewritten by the server every second
+ * res    id / answer... / HMAC           written by the server
+ * alive  timestamp / HMAC              rewritten by the server every second
+ * owner  timestamp / HMAC              written by the app while capture is active
  * </pre>
  *
  * The token is kept in app-private storage and handed to the server on its command line. Shared files contain only
