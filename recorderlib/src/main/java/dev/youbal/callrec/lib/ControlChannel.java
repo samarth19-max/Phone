@@ -122,11 +122,22 @@ final class ControlChannel {
 
     /** Write beside the destination and rename into place. */
     private static void write(File target, List<String> lines) throws IOException {
-        File temp = new File(target.getParentFile(), target.getName() + ".tmp");
-        Files.write(temp.toPath(), String.join("\n", lines).getBytes(StandardCharsets.UTF_8));
-        if (!temp.renameTo(target)) {
-            target.delete();
-            if (!temp.renameTo(target)) throw new IOException("could not write " + target.getName());
+        File parent = target.getParentFile();
+        if (parent == null || (!parent.isDirectory() && !parent.mkdirs())) {
+            throw new IOException("control directory is unavailable");
+        }
+        File temp = File.createTempFile(target.getName(), ".tmp", parent);
+        try {
+            Files.write(temp.toPath(), String.join("\n", lines).getBytes(StandardCharsets.UTF_8));
+            try {
+                Files.move(temp.toPath(), target.toPath(),
+                        java.nio.file.StandardCopyOption.ATOMIC_MOVE,
+                        java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            } catch (java.nio.file.AtomicMoveNotSupportedException unsupported) {
+                Files.move(temp.toPath(), target.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            }
+        } finally {
+            if (temp.exists()) temp.delete();
         }
     }
 
