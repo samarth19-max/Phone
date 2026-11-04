@@ -163,9 +163,9 @@ public class ControlChannelTest {
     public void shellRejectsUnknownCommandsAndWrongArgumentCounts() throws Exception {
         File d = dir();
         ControlChannel shell = new ControlChannel(d, "secret");
-        Files.write(new File(d, "cmd").toPath(), "secret\\nabc123\\nEXEC\\nwhoami".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        Files.write(new File(d, "cmd").toPath(), "secret\nabc123\nEXEC\nwhoami".getBytes(java.nio.charset.StandardCharsets.UTF_8));
         assertNull(shell.poll());
-        Files.write(new File(d, "cmd").toPath(), "secret\\nabc123\\nSTART\\nonly-one-argument".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        Files.write(new File(d, "cmd").toPath(), "secret\nabc123\nSTART\nonly-one-argument".getBytes(java.nio.charset.StandardCharsets.UTF_8));
         assertNull(shell.poll());
     }
 
