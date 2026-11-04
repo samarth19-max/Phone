@@ -4,17 +4,25 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@v4
         with:
           packages: 'platform-tools platforms;android-37 build-tools;36.0.0 ndk;28.2.13676358'
           log-accepted-android-sdk-licenses: false
       - run: chmod +x gradlew
       - run: ./gradlew assembleDebug testDebugUnitTest lintDebug
+      - name: Verify Android 17 local-network permission gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Fq 'android.permission.ACCESS_LOCAL_NETWORK' app/src/main/AndroidManifest.xml
+          grep -Fq 'Build.VERSION.SDK_INT < 37' app/src/main/java/dev/youbal/callrecphone/SettingsActivity.java
+          grep -Fq 'requestPermissions(new String[]{"android.permission.ACCESS_LOCAL_NETWORK"}, REQ_LOCAL_NETWORK)' app/src/main/java/dev/youbal/callrecphone/SettingsActivity.java
+          ! grep -Fq 'BuiltinAccess.start' app/src/main/java/dev/youbal/callrecphone/MainActivity.java
       - name: Verify patched cryptography dependencies
         shell: bash
         run: |
