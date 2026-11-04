@@ -30,7 +30,7 @@ public class ControlChannelTest {
         fields.add(Long.toString(issuedAt));
         fields.add(verb);
         for (String arg : args) fields.add(arg);
-        fields.add(ControlChannel.mac(token, fields));
+        fields.add(ControlChannel.mac(token, "cmd", fields));
         Files.write(new File(dir, "cmd").toPath(), String.join("\n", fields).getBytes(java.nio.charset.StandardCharsets.UTF_8));
     }
 
@@ -224,6 +224,8 @@ public class ControlChannelTest {
         String owner = new String(Files.readAllBytes(new File(d, "owner").toPath()), java.nio.charset.StandardCharsets.UTF_8);
         assertFalse(owner.contains("secret"));
         assertEquals(2, owner.split("\n").length);
+        Files.copy(new File(d, "owner").toPath(), new File(d, "alive").toPath());
+        assertFalse(app.alive(1_000_000, 3000));
     }
 
 
