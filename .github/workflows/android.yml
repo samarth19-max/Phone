@@ -15,6 +15,14 @@ jobs:
           log-accepted-android-sdk-licenses: false
       - run: chmod +x gradlew
       - run: ./gradlew assembleDebug testDebugUnitTest lintDebug
+      - name: Verify patched cryptography dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :app:dependencyInsight --dependency bcprov-jdk15to18 --configuration debugRuntimeClasspath | tee /tmp/bouncycastle.txt
+          grep -q 'org.bouncycastle:bcprov-jdk15to18:1.86' /tmp/bouncycastle.txt
+          ./gradlew :app:dependencyInsight --dependency conscrypt-android --configuration debugRuntimeClasspath | tee /tmp/conscrypt.txt
+          grep -q 'org.conscrypt:conscrypt-android:2.8.0' /tmp/conscrypt.txt
       - name: Verify 16 KB native-library and APK alignment
         shell: bash
         run: |
