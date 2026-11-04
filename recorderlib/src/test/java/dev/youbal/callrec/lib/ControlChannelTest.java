@@ -21,8 +21,13 @@ public class ControlChannelTest {
 
 
     private static void writeCommand(File dir, String token, String id, String verb, String... args) throws IOException {
+        writeCommandAt(dir, token, id, System.currentTimeMillis(), verb, args);
+    }
+
+    private static void writeCommandAt(File dir, String token, String id, long issuedAt, String verb, String... args) throws IOException {
         List<String> fields = new ArrayList<>();
         fields.add(id);
+        fields.add(Long.toString(issuedAt));
         fields.add(verb);
         for (String arg : args) fields.add(arg);
         fields.add(ControlChannel.mac(token, fields));
@@ -219,6 +224,16 @@ public class ControlChannelTest {
         String owner = new String(Files.readAllBytes(new File(d, "owner").toPath()), java.nio.charset.StandardCharsets.UTF_8);
         assertFalse(owner.contains("secret"));
         assertEquals(2, owner.split("\n").length);
+    }
+
+
+    @Test
+    public void shellRejectsExpiredAuthenticatedCommands() throws Exception {
+        File d = dir();
+        ControlChannel shell = new ControlChannel(d, "secret");
+        String id = "0123456789abcdef0123456789abcdef";
+        writeCommandAt(d, "secret", id, System.currentTimeMillis() - 20_000, "PING");
+        assertNull(shell.poll());
     }
 
 }
