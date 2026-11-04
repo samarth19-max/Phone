@@ -196,7 +196,11 @@ public final class SettingsActivity extends Activity {
         Toast.makeText(this, "Starting…", Toast.LENGTH_SHORT).show();
         BuiltinAccess.start(this, new BuiltinAccess.Listener() {
             @Override public void onStatus(String message) { app.main.post(() -> Toast.makeText(SettingsActivity.this, message, Toast.LENGTH_SHORT).show()); }
-            @Override public void onDone(boolean ok, String message) { app.prefs.lastStatus(message); app.main.post(() -> { Toast.makeText(SettingsActivity.this, message, Toast.LENGTH_LONG).show(); build(); }); }
+            @Override public void onDone(boolean ok, String message) {
+                app.prefs.lastStatus(message);
+                if (ok && CallService.instance != null) CallService.instance.retryCaptureRecovery();
+                app.main.post(() -> { Toast.makeText(SettingsActivity.this, message, Toast.LENGTH_LONG).show(); build(); });
+            }
         });
     }
 
