@@ -70,6 +70,8 @@ jobs:
           grep -Fq 'RecordingPath.isAllowedOutputDir(dir, outputDir)' recorderlib/src/main/java/dev/youbal/callrec/lib/ShellServer.java
           grep -Fq 'shellRejectsUnknownCommandsAndWrongArgumentCounts' "$tests"
           grep -Fq 'HmacSHA256' "$channel"
+          grep -Fq 'mac(token, "cmd"' "$channel"
+          grep -Fq 'mac(token, "owner"' "$channel"
           grep -Fq 'MAX_COMMAND_AGE_MS' "$channel"
           grep -Fq 'shellRejectsTamperedAndReplayedCommands' "$tests"
           grep -Fq 'shellRejectsExpiredAuthenticatedCommands' "$tests"
