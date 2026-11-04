@@ -20,7 +20,7 @@ import javax.crypto.spec.SecretKeySpec;
  * ControlChannel instance shares the same cmd/res files.
  *
  * <pre>
- * cmd    id / verb / args / HMAC      written by the app, deleted by the server when it takes it
+ * cmd    id / timestamp / verb / args / HMAC  written by the app, deleted by the server when it takes it
  * res    id / answer...                written by the server
  * alive  a time in millis              rewritten by the server every second
  * </pre>
