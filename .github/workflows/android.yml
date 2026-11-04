@@ -11,7 +11,29 @@ jobs:
           java-version: '17'
       - uses: android-actions/setup-android@v3
         with:
-          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0 ndk;27.0.12077973'
           log-accepted-android-sdk-licenses: false
       - run: chmod +x gradlew
       - run: ./gradlew assembleDebug testDebugUnitTest lintDebug
+      - name: Verify 16 KB native-library and APK alignment
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk="app/build/outputs/apk/debug/app-debug.apk"
+          unpack="$(mktemp -d)"
+          unzip -q "$apk" 'lib/*' -d "$unpack"
+          readelf="$ANDROID_HOME/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"
+          if [[ -d "$unpack/lib" ]]; then
+            mapfile -d '' libs < <(find "$unpack/lib" -type f -name '*.so' -print0)
+            for lib in "${libs[@]}"; do
+              echo "Checking ELF LOAD segments: $lib"
+              while IFS= read -r alignment; do
+                [[ -n "$alignment" ]] || continue
+                if (( alignment < 0x4000 )); then
+                  echo "ERROR: $lib has a LOAD segment aligned to $alignment (less than 16 KB)"
+                  exit 1
+                fi
+              done < <("$readelf" -lW "$lib" | awk '$1 == "LOAD" { print $NF }')
+            done
+          fi
+          "$ANDROID_HOME/build-tools/36.0.0/zipalign" -c -P 16 -v 4 "$apk"
