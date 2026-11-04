@@ -7,6 +7,8 @@
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
+    <!-- Android 17+: required for the built-in Wireless Debugging ADB discovery and local connection. -->
+    <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK"/>
     <uses-feature android:name="android.hardware.telephony" android:required="false"/>
 
     <!-- The ADB client library declares these for features this app does not use. Not needed, so not requested. -->
