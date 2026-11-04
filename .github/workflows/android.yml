@@ -11,7 +11,7 @@ jobs:
           java-version: '17'
       - uses: android-actions/setup-android@v3
         with:
-          packages: 'platform-tools platforms;android-36 build-tools;36.0.0 ndk;27.0.12077973'
+          packages: 'platform-tools platforms;android-37 build-tools;36.0.0 ndk;28.2.13676358'
           log-accepted-android-sdk-licenses: false
       - run: chmod +x gradlew
       - run: ./gradlew assembleDebug testDebugUnitTest lintDebug
@@ -30,7 +30,7 @@ jobs:
           apk="app/build/outputs/apk/debug/app-debug.apk"
           unpack="$(mktemp -d)"
           unzip -q "$apk" 'lib/*' -d "$unpack"
-          readelf="$ANDROID_HOME/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"
+          readelf="$ANDROID_HOME/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"
           if [[ -d "$unpack/lib" ]]; then
             mapfile -d '' libs < <(find "$unpack/lib" -type f -name '*.so' -print0)
             for lib in "${libs[@]}"; do
