@@ -81,9 +81,13 @@ public final class SettingsActivity extends Activity {
     }
     private boolean isDefaultPhone() { return DefaultPhone.held(this); }
     private String[] permissions() {
-        return Build.VERSION.SDK_INT >= 33
-            ? new String[]{Manifest.permission.READ_CONTACTS, Manifest.permission.READ_CALL_LOG, Manifest.permission.CALL_PHONE, Manifest.permission.RECORD_AUDIO, Manifest.permission.POST_NOTIFICATIONS}
-            : new String[]{Manifest.permission.READ_CONTACTS, Manifest.permission.READ_CALL_LOG, Manifest.permission.CALL_PHONE, Manifest.permission.RECORD_AUDIO};
+        if (Build.VERSION.SDK_INT >= 37) {
+            return new String[]{Manifest.permission.READ_CONTACTS, Manifest.permission.READ_CALL_LOG, Manifest.permission.CALL_PHONE, Manifest.permission.POST_NOTIFICATIONS};
+        }
+        if (Build.VERSION.SDK_INT >= 33) {
+            return new String[]{Manifest.permission.READ_CONTACTS, Manifest.permission.READ_CALL_LOG, Manifest.permission.CALL_PHONE, Manifest.permission.RECORD_AUDIO, Manifest.permission.POST_NOTIFICATIONS};
+        }
+        return new String[]{Manifest.permission.READ_CONTACTS, Manifest.permission.READ_CALL_LOG, Manifest.permission.CALL_PHONE, Manifest.permission.RECORD_AUDIO};
     }
     private boolean permissionsDone() { for (String p : permissions()) if (!has(p)) return false; return true; }
 
