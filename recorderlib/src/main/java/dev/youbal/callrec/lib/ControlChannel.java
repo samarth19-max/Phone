@@ -20,13 +20,13 @@ import javax.crypto.spec.SecretKeySpec;
  * ControlChannel instance shares the same cmd/res files.
  *
  * <pre>
- * cmd    token / id / verb / args...   written by the app, deleted by the server when it takes it
+ * cmd    id / verb / args / HMAC      written by the app, deleted by the server when it takes it
  * res    id / answer...                written by the server
  * alive  a time in millis              rewritten by the server every second
  * </pre>
  *
- * The token is a secret kept in the app's private storage and handed to the server on its command line, so
- * another app that can see this folder still cannot give it orders.
+ * The token is kept in app-private storage and handed to the server on its command line. Shared files contain only
+ * HMAC-SHA256 authenticators, not the token itself.
  */
 final class ControlChannel {
 
@@ -101,17 +101,24 @@ final class ControlChannel {
         catch (NumberFormatException e) { return false; }
     }
 
-    /** The waiting request, or null. A request with the wrong token is deleted and ignored. */
+    /** The waiting request, or null. Invalid, unauthenticated, and replayed requests are discarded. */
     Command poll() {
         File file = new File(dir, CMD);
         List<String> lines = read(file);
         if (lines == null) return null;
         file.delete();
-        if (lines.size() < 3 || !lines.get(0).equals(token)) return null;
-        String id = lines.get(1);
-        String verb = lines.get(2);
-        List<String> args = new ArrayList<>(lines.subList(3, lines.size()));
-        if (!id.matches("[a-z0-9]{1,32}") || !validCommand(verb, args)) return null;
+        if (lines.size() < 3
+                || !authentic(token, lines.subList(0, lines.size() - 1), lines.get(lines.size() - 1))) return null;
+        String id = lines.get(0);
+        String verb = lines.get(1);
+        List<String> args = new ArrayList<>(lines.subList(2, lines.size() - 1));
+        if (!id.matches("[a-f0-9]{32}") || !validCommand(verb, args) || consumedCommandIds.contains(id)) return null;
+        consumedCommandIds.add(id);
+        if (consumedCommandIds.size() > 128) {
+            Iterator<String> oldest = consumedCommandIds.iterator();
+            oldest.next();
+            oldest.remove();
+        }
         return new Command(id, verb, args);
     }
 
