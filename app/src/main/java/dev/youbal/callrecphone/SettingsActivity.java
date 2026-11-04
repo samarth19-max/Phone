@@ -42,7 +42,7 @@ public final class SettingsActivity extends Activity {
             if (has("android.permission.ACCESS_LOCAL_NETWORK")) {
                 if (action != null) action.run();
             } else {
-                Toast.makeText(this, "Local network access is required for built-in Wireless Debugging recording. Enable it in App info → Permissions → Nearby devices, or use Shizuku or microphone mode.", Toast.LENGTH_LONG).show();
+                Toast.makeText(this, "Local network access is required for built-in Wireless Debugging recording. Enable it in App info → Permissions → Nearby devices, or use Shizuku. Microphone call recording may be limited by the phone's audio policy.", Toast.LENGTH_LONG).show();
             }
             return;
         }
