@@ -177,11 +177,33 @@ public final class CallService extends InCallService implements CallRecorder.Lis
         recording = false; recordingCall = null; status("Saved a " + seconds + " s recording"); notifySaved();
     }
     @Override public void onRecordingSilent(String path, String source, int seconds, int audiblePercent) {
-        recording = false; recordingCall = null; new File(path).delete();
-        status("The recording had no sound, so it was discarded. Check Shizuku, or try the microphone mode.");
+        recording = false;
+        if (recordingCall != null) {
+            consentedCalls.remove(recordingCall);
+            attempted.remove(recordingCall);
+        }
+        recordingCall = null;
+        new File(path).delete();
+        status("The recording contained no usable audio and was discarded. Check the selected recording engine.");
     }
-    @Override public void onShizukuUnavailable() { recording = false; recordingCall = null; status("Recording access is off, so this call was not recorded. Start it in Settings → Setup."); }
-    @Override public void onError(String message) { recording = false; recordingCall = null; status("Recording failed: " + message); }
+    @Override public void onShizukuUnavailable() {
+        recording = false;
+        if (recordingCall != null) {
+            consentedCalls.remove(recordingCall);
+            attempted.remove(recordingCall);
+        }
+        recordingCall = null;
+        status("Recording access is unavailable, so this call was not recorded. Start Shizuku or built-in Wireless Debugging access in Settings.");
+    }
+    @Override public void onError(String message) {
+        recording = false;
+        if (recordingCall != null) {
+            consentedCalls.remove(recordingCall);
+            attempted.remove(recordingCall);
+        }
+        recordingCall = null;
+        status("Recording failed: " + message);
+    }
     private void notifySaved() { for (Runnable r : new ArrayList<>(PhoneApp.get(this).recordingListeners)) r.run(); }
 
     // ---- notification --------------------------------------------------------------------------------------------
