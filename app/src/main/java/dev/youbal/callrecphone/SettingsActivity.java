@@ -42,7 +42,7 @@ public final class SettingsActivity extends Activity {
             if (has("android.permission.ACCESS_LOCAL_NETWORK")) {
                 if (action != null) action.run();
             } else {
-                Toast.makeText(this, "Local network access is required for built-in Wireless Debugging recording. You can still use Shizuku or microphone mode.", Toast.LENGTH_LONG).show();
+                Toast.makeText(this, "Local network access is required for built-in Wireless Debugging recording. Enable it in App info → Permissions → Nearby devices, or use Shizuku or microphone mode.", Toast.LENGTH_LONG).show();
             }
             return;
         }
@@ -70,7 +70,7 @@ public final class SettingsActivity extends Activity {
         pendingLocalNetworkAction = action;
         requestPermissions(new String[]{"android.permission.ACCESS_LOCAL_NETWORK"}, REQ_LOCAL_NETWORK);
     }
-     private boolean isDefaultPhone() { return DefaultPhone.held(this); }
+    private boolean isDefaultPhone() { return DefaultPhone.held(this); }
     private String[] permissions() {
         return Build.VERSION.SDK_INT >= 33
             ? new String[]{Manifest.permission.READ_CONTACTS, Manifest.permission.READ_CALL_LOG, Manifest.permission.CALL_PHONE, Manifest.permission.RECORD_AUDIO, Manifest.permission.POST_NOTIFICATIONS}
@@ -116,6 +116,8 @@ public final class SettingsActivity extends Activity {
         }));
 
         step(card, 3, access, "Start recording access", "Lets the app record both sides of a call. Needs Wireless debugging (Android 11 or newer) and has to be started again after every reboot. Skip it to record with the microphone only.");
+        if (Build.VERSION.SDK_INT >= 37)
+            card.addView(Ui.text(this, "Android 17 also asks for Local network access when you start built-in Wireless Debugging recording. It is used for this phone's ADB discovery and connection; Shizuku and microphone modes do not need it.", 13, Ui.MUTED));
         switch (builtin) {
             case UNSUPPORTED:
                 card.addView(Ui.text(this, "Not available on this phone (needs Android 11 or newer). Use the Shizuku app below, or the microphone.", 13, Ui.WARN));
@@ -150,7 +152,7 @@ public final class SettingsActivity extends Activity {
             "1. Turn on Developer options, then Wireless debugging (Wi-Fi must be on).\n"
             + "2. Tap “Pair device with pairing code” and leave that box open.\n"
             + "3. Pull down the notification from this app and type the six-digit code.\n\n"
-            + "You only do this once. Allow notifications first if you have not.")
+            + "You only do this once. Allow notifications first if you have not. On Android 17, also allow Local network access when prompted; it is used to find this phone's own Wireless Debugging service.")
             .setPositiveButton("Continue", (d, n) -> {
                 if (Build.VERSION.SDK_INT >= 33 && !has(Manifest.permission.POST_NOTIFICATIONS)) {
                     requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, REQ_PAIR_NOTIFICATIONS);
