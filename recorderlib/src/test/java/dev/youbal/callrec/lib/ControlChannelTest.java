@@ -122,4 +122,40 @@ public class ControlChannelTest {
         app.beatOwner(2_000_000);
         assertFalse(app.ownerAlive(1_000_000, 5000));
     }
+
+    @Test
+    public void requestsFromDifferentInstancesAreSerialized() throws Exception {
+        File d = dir();
+        ControlChannel first = new ControlChannel(d, "secret");
+        ControlChannel second = new ControlChannel(d, "secret");
+        ControlChannel shell = new ControlChannel(d, "secret");
+        final String[] answers = new String[2];
+        Thread server = new Thread(() -> {
+            int handled = 0;
+            long end = System.currentTimeMillis() + 6000;
+            while (handled < 2 && System.currentTimeMillis() < end) {
+                ControlChannel.Command command = shell.poll();
+                if (command != null) {
+                    shell.respond(command.id, command.verb);
+                    handled++;
+                } else {
+                    try { Thread.sleep(10); } catch (InterruptedException e) { return; }
+                }
+            }
+        });
+        Thread a = new Thread(() -> {
+            try { answers[0] = first.request("FIRST", 5000); } catch (Exception e) { answers[0] = "error"; }
+        });
+        Thread b = new Thread(() -> {
+            try { answers[1] = second.request("SECOND", 5000); } catch (Exception e) { answers[1] = "error"; }
+        });
+        server.start();
+        a.start();
+        b.start();
+        a.join(6000);
+        b.join(6000);
+        server.join(6000);
+        assertEquals("FIRST", answers[0]);
+        assertEquals("SECOND", answers[1]);
+    }
 }
