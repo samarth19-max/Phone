@@ -9,7 +9,8 @@ import java.util.List;
 
 /**
  * How the app talks to the recorder process it started as the shell user: a few small files in a folder
- * both can reach. No sockets, no binder, no hidden APIs. One request is in flight at a time.
+ * both can reach. No sockets, no binder, no hidden APIs. Requests are serialized process-wide because every
+ * ControlChannel instance shares the same cmd/res files.
  *
  * <pre>
  * cmd    token / id / verb / args...   written by the app, deleted by the server when it takes it
@@ -22,7 +23,6 @@ import java.util.List;
  */
 final class ControlChannel {
 
-    /** One request as the server sees it. */
     static final class Command {
         final String id, verb;
         final List<String> args;
@@ -31,6 +31,7 @@ final class ControlChannel {
     }
 
     private static final String CMD = "cmd", RES = "res", ALIVE = "alive", OWNER = "owner";
+    private static final Object REQUEST_LOCK = new Object();
 
     private final File dir;
     private final String token;
@@ -40,53 +41,51 @@ final class ControlChannel {
         this.token = token;
     }
 
-    // ---- app side ------------------------------------------------------------------------------------------------
-
     /** Sends one request and waits for its answer. Throws if the server does not answer in time. */
-    synchronized String request(String verb, long timeoutMs, String... args) throws IOException, InterruptedException {
-        dir.mkdirs();
-        String id = Long.toString(System.nanoTime(), 36);
-        List<String> lines = new ArrayList<>();
-        lines.add(token); lines.add(id); lines.add(verb);
-        for (String a : args) lines.add(clean(a));
-        File res = new File(dir, RES);
-        res.delete();
-        write(new File(dir, CMD), lines);
-        long end = System.currentTimeMillis() + timeoutMs;
-        while (System.currentTimeMillis() < end) {
-            List<String> answer = read(res);
-            if (answer != null && !answer.isEmpty() && answer.get(0).equals(id)) {
-                res.delete();
-                return String.join("\n", answer.subList(1, answer.size()));
+    String request(String verb, long timeoutMs, String... args) throws IOException, InterruptedException {
+        synchronized (REQUEST_LOCK) {
+            dir.mkdirs();
+            String id = Long.toString(System.nanoTime(), 36);
+            List<String> lines = new ArrayList<>();
+            lines.add(token); lines.add(id); lines.add(verb);
+            for (String a : args) lines.add(clean(a));
+            File res = new File(dir, RES);
+            res.delete();
+            write(new File(dir, CMD), lines);
+            long end = System.currentTimeMillis() + timeoutMs;
+            while (System.currentTimeMillis() < end) {
+                List<String> answer = read(res);
+                if (answer != null && !answer.isEmpty() && answer.get(0).equals(id)) {
+                    res.delete();
+                    return String.join("\n", answer.subList(1, answer.size()));
+                }
+                Thread.sleep(40);
             }
-            Thread.sleep(40);
+            new File(dir, CMD).delete();
+            throw new IOException("the recorder process did not answer");
         }
-        new File(dir, CMD).delete();
-        throw new IOException("the recorder process did not answer");
     }
 
-    /** The app renews this lease only while it owns an active capture. */
     void beatOwner(long now) {
         List<String> lines = new ArrayList<>(); lines.add(token); lines.add(Long.toString(now));
         try { write(new File(dir, OWNER), lines); } catch (IOException ignored) { /* Expiry safely stops capture. */ }
     }
-    /** True only when a lease from this app instance is fresh. */
+
     boolean ownerAlive(long now, long maxAgeMs) {
         List<String> lines = read(new File(dir, OWNER));
         if (lines == null || lines.size() < 2 || !token.equals(lines.get(0))) return false;
         try { long beat = Long.parseLong(lines.get(1).trim()); return now - beat <= maxAgeMs && beat <= now + 60_000; }
         catch (NumberFormatException e) { return false; }
     }
+
     void clearOwner() { new File(dir, OWNER).delete(); }
-    /** True when the server has written its heartbeat within the last maxAgeMs. */
+
     boolean alive(long now, long maxAgeMs) {
         List<String> lines = read(new File(dir, ALIVE));
         if (lines == null || lines.isEmpty()) return false;
         try { long beat = Long.parseLong(lines.get(0).trim()); return now - beat <= maxAgeMs && beat <= now + 60_000; }
         catch (NumberFormatException e) { return false; }
     }
-
-    // ---- server side ---------------------------------------------------------------------------------------------
 
     /** The waiting request, or null. A request with the wrong token is deleted and ignored. */
     Command poll() {
@@ -112,11 +111,9 @@ final class ControlChannel {
 
     void clearAlive() { new File(dir, ALIVE).delete(); }
 
-    // ---- files ---------------------------------------------------------------------------------------------------
-
     private static String clean(String value) { return value == null ? "" : value.replace('\r', ' ').replace('\n', ' '); }
 
-    /** Written beside and renamed into place, so a reader never sees half a file. */
+    /** Write beside the destination and rename into place. */
     private static void write(File target, List<String> lines) throws IOException {
         File temp = new File(target.getParentFile(), target.getName() + ".tmp");
         Files.write(temp.toPath(), String.join("\n", lines).getBytes(StandardCharsets.UTF_8));
