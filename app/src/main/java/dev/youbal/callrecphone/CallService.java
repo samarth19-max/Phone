@@ -40,6 +40,15 @@ public final class CallService extends InCallService implements CallRecorder.Lis
     private boolean recording;
     private boolean localAccessRevoked;
     private boolean stopBuiltinAfterRecording;
+    private final Handler builtinLeaseHandler = new Handler(Looper.getMainLooper());
+    private boolean builtinLeaseActive;
+    private final Runnable builtinLeaseBeat = new Runnable() {
+        @Override public void run() {
+            if (!builtinLeaseActive) return;
+            BuiltinAccess.heartbeat(CallService.this);
+            builtinLeaseHandler.postDelayed(this, 1000);
+        }
+    };
 
     @Override public void onCreate() {
         super.onCreate(); instance = this; PhoneApp app = PhoneApp.get(this);
@@ -233,16 +242,31 @@ public final class CallService extends InCallService implements CallRecorder.Lis
         if (!consentedCalls.contains(call) || !attempted.add(call)) return;
 
         recordingCall = call;
+        startBuiltinLease();
         recorder.onCallActive(numberOf(call), incoming(call) ? CallRecorder.IN : CallRecorder.OUT);
     }
 
     private void stopBuiltinIfPending() {
+        stopBuiltinLease();
         if (stopBuiltinAfterRecording) {
             stopBuiltinAfterRecording = false;
             BuiltinAccess.stop(this);
         }
     }
 
+    private void startBuiltinLease() {
+        if (builtinLeaseActive || recorder == null || !recorder.usesBuiltinAccess()) return;
+        builtinLeaseActive = true;
+        BuiltinAccess.heartbeat(this);
+        builtinLeaseHandler.postDelayed(builtinLeaseBeat, 1000);
+    }
+
+    private void stopBuiltinLease() {
+        if (!builtinLeaseActive) return;
+        builtinLeaseActive = false;
+        builtinLeaseHandler.removeCallbacks(builtinLeaseBeat);
+        BuiltinAccess.clearHeartbeat(this);
+    }
     private void status(String text) { PhoneApp app = PhoneApp.get(this); app.prefs.lastStatus(text); changed(); }
     @Override public void onRecordingStarted() { recording = true; status("Recording started; you confirmed everyone agreed"); }
     @Override public void onRecordingSaved(String path, String source, int seconds, int audiblePercent) {
@@ -329,6 +353,9 @@ public final class CallService extends InCallService implements CallRecorder.Lis
     }
 
     @Override public void onDestroy() {
+        // Leave the last owner timestamp on disk: ShellServer detects abrupt service/process death.
+        builtinLeaseActive = false;
+        builtinLeaseHandler.removeCallbacks(builtinLeaseBeat);
         if (recorder != null) { if (recordingCall != null) recorder.onCallEnded(); recorder.release(); }
         for (Map.Entry<Call, Call.Callback> e : calls.entrySet()) e.getKey().unregisterCallback(e.getValue());
         calls.clear(); consentedCalls.clear(); attempted.clear(); notifications.cancel(NOTIFICATION); instance = null;
