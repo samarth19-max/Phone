@@ -12,7 +12,7 @@ public class ShellCommandTest {
 
     @Test
     public void escapesSingleQuotesWithoutLeavingTheArgument() {
-        assertEquals("'a'\\''; touch /tmp/pwned;\\''b'", ShellCommand.quote("a'; touch /tmp/pwned;'b"));
+        assertEquals("'a'\\''; touch /tmp/pwned;'\\''b'", ShellCommand.quote("a'; touch /tmp/pwned;'b"));
     }
 
     @Test(expected = IllegalArgumentException.class)
