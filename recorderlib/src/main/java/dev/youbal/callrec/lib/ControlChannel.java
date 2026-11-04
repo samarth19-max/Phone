@@ -32,6 +32,8 @@ final class ControlChannel {
 
     private static final String CMD = "cmd", RES = "res", ALIVE = "alive", OWNER = "owner";
     private static final Object REQUEST_LOCK = new Object();
+    private static final int MAX_PROTOCOL_BYTES = 16 * 1024;
+    private static final int MAX_ARGUMENT_LENGTH = 4096;
 
     private final File dir;
     private final String token;
@@ -43,6 +45,7 @@ final class ControlChannel {
 
     /** Sends one request and waits for its answer. Throws if the server does not answer in time. */
     String request(String verb, long timeoutMs, String... args) throws IOException, InterruptedException {
+        validateRequest(verb, args);
         synchronized (REQUEST_LOCK) {
             dir.mkdirs();
             String id = Long.toString(System.nanoTime(), 36);
@@ -94,7 +97,11 @@ final class ControlChannel {
         if (lines == null) return null;
         file.delete();
         if (lines.size() < 3 || !lines.get(0).equals(token)) return null;
-        return new Command(lines.get(1), lines.get(2), new ArrayList<>(lines.subList(3, lines.size())));
+        String id = lines.get(1);
+        String verb = lines.get(2);
+        List<String> args = new ArrayList<>(lines.subList(3, lines.size()));
+        if (!id.matches("[a-z0-9]{1,32}") || !validCommand(verb, args)) return null;
+        return new Command(id, verb, args);
     }
 
     void respond(String id, String answer) {
@@ -126,6 +133,8 @@ final class ControlChannel {
     private static List<String> read(File file) {
         try {
             if (!file.isFile()) return null;
+            long length = file.length();
+            if (length <= 0 || length > MAX_PROTOCOL_BYTES) return null;
             String text = new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8);
             List<String> lines = new ArrayList<>();
             for (String line : text.split("\n", -1)) lines.add(line);
