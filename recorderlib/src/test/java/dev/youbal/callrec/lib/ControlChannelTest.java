@@ -144,10 +144,10 @@ public class ControlChannelTest {
             }
         });
         Thread a = new Thread(() -> {
-            try { answers[0] = first.request("FIRST", 5000); } catch (Exception e) { answers[0] = "error"; }
+            try { answers[0] = first.request("PING", 5000); } catch (Exception e) { answers[0] = "error"; }
         });
         Thread b = new Thread(() -> {
-            try { answers[1] = second.request("SECOND", 5000); } catch (Exception e) { answers[1] = "error"; }
+            try { answers[1] = second.request("STOP", 5000); } catch (Exception e) { answers[1] = "error"; }
         });
         server.start();
         a.start();
@@ -155,7 +155,27 @@ public class ControlChannelTest {
         a.join(6000);
         b.join(6000);
         server.join(6000);
-        assertEquals("FIRST", answers[0]);
-        assertEquals("SECOND", answers[1]);
+        assertEquals("PING", answers[0]);
+        assertEquals("STOP", answers[1]);
     }
+
+    @Test
+    public void shellRejectsUnknownCommandsAndWrongArgumentCounts() throws Exception {
+        File d = dir();
+        ControlChannel shell = new ControlChannel(d, "secret");
+        Files.write(new File(d, "cmd").toPath(), "secret\\nabc123\\nEXEC\\nwhoami".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        assertNull(shell.poll());
+        Files.write(new File(d, "cmd").toPath(), "secret\\nabc123\\nSTART\\nonly-one-argument".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        assertNull(shell.poll());
+    }
+
+    @Test
+    public void oversizedControlFilesAreIgnored() throws Exception {
+        File d = dir();
+        ControlChannel shell = new ControlChannel(d, "secret");
+        byte[] oversized = new byte[20 * 1024];
+        Files.write(new File(d, "cmd").toPath(), oversized);
+        assertNull(shell.poll());
+    }
+
 }
