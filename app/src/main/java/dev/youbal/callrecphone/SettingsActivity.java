@@ -136,7 +136,22 @@ public final class SettingsActivity extends Activity {
         LinearLayout card = Ui.card(this); content.addView(card); card.addView(Ui.title(this, "Recording", 18));
         boolean on = app.prefs.recording();
         card.addView(Ui.text(this, on ? "On. Calls with one person are recorded once they connect." : "Off. Nothing is recorded.", 14, on ? Ui.OK : Ui.MUTED));
-        card.addView(Ui.button(this, on ? "Turn recording off" : "Turn recording on", !on, v -> { app.prefs.recording(!on); build(); }));
+        card.addView(Ui.button(this, on ? "Turn recording off" : "Turn recording on", !on, v -> {
+            if (on) {
+                app.prefs.recording(false);
+                build();
+            } else {
+                new AlertDialog.Builder(this)
+                    .setTitle("Enable automatic call recording?")
+                    .setMessage("When enabled, eligible one-to-one calls are recorded automatically. This app does not notify the other person for you. Tell everyone on the call before recording and follow the law where you are. You can turn recording off here at any time.")
+                    .setNegativeButton("Cancel", null)
+                    .setPositiveButton("Enable recording", (dialog, which) -> {
+                        app.prefs.recording(true);
+                        build();
+                    })
+                    .show();
+            }
+        }));
         String[] modes = {"AUTO", "BUILTIN", "SHIZUKU", "MIC"}, modeNames = {"Automatic: both sides if access is on, else the microphone", "Built-in access only: both sides", "Shizuku app only: both sides", "Microphone only: needs speakerphone"};
         int current = 0; for (int i = 0; i < modes.length; i++) if (modes[i].equals(app.prefs.mode())) current = i;
         card.addView(Ui.button(this, "Source: " + modeNames[current].split(":")[0], false, v -> Ui.sheet(this, "Recording source", modeNames, indexOf(modes, app.prefs.mode()), n -> { app.prefs.mode(modes[n]); build(); }).show()));
