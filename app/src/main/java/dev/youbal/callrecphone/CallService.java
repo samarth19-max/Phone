@@ -166,10 +166,26 @@ public final class CallService extends InCallService implements CallRecorder.Lis
      * Recording is never automatic. The user must attest to informed agreement for every active call.
      * Any hold, second call, conference, or call-topology change invalidates that consent.
      */
-    private void refreshAutomaticRecorderMode(PhoneApp app) {
-        if (Build.VERSION.SDK_INT < 37 || !"AUTO".equals(app.prefs.mode()) || recordingCall != null || recording) return;
-        CallRecorder.Mode desired = CallRecorderSetup.state(this) == CallRecorderSetup.State.READY
-                ? CallRecorder.Mode.SHIZUKU : CallRecorder.Mode.BUILTIN;
+    private CallRecorder.Mode desiredRecorderMode(PhoneApp app) {
+        CallRecorder.Mode requested;
+        try { requested = CallRecorder.Mode.valueOf(app.prefs.mode()); }
+        catch (IllegalArgumentException e) { requested = CallRecorder.Mode.AUTO; }
+        if (Build.VERSION.SDK_INT >= 37) {
+            if (requested == CallRecorder.Mode.MIC) {
+                app.prefs.mode("AUTO");
+                requested = CallRecorder.Mode.AUTO;
+            }
+            if (requested == CallRecorder.Mode.AUTO) {
+                return CallRecorderSetup.state(this) == CallRecorderSetup.State.READY
+                        ? CallRecorder.Mode.SHIZUKU : CallRecorder.Mode.BUILTIN;
+            }
+        }
+        return requested;
+    }
+
+    private void refreshRecorderMode(PhoneApp app) {
+        if (recordingCall != null || recording) return;
+        CallRecorder.Mode desired = desiredRecorderMode(app);
         if (desired != recorderMode) {
             recorder.release();
             recorderMode = desired;
@@ -177,10 +193,23 @@ public final class CallService extends InCallService implements CallRecorder.Lis
         }
     }
 
+    /** Retry the startup recovery after the user has successfully started or re-paired Wireless Debugging. */
+    void retryCaptureRecovery() {
+        if (recorderMode != CallRecorder.Mode.BUILTIN) return;
+        captureRecoveryPending = true;
+        captureRecoveryFailed = false;
+        BuiltinAccess.resetCapture(this, ok -> mainHandler.post(() -> {
+            captureRecoveryPending = false;
+            captureRecoveryFailed = !ok;
+            if (!ok) PhoneApp.get(this).prefs.lastStatus("The previous built-in recorder did not acknowledge shutdown. Built-in recording remains blocked for safety.");
+            changed();
+        }));
+    }
+
     private void updateRecording() {
         if (recorder == null) return;
         PhoneApp app = PhoneApp.get(this);
-        refreshAutomaticRecorderMode(app);
+        refreshRecorderMode(app);
         if (recorderMode == CallRecorder.Mode.BUILTIN && (captureRecoveryPending || captureRecoveryFailed)) return;
 
         // Local-network revocation must stop an existing shell process even if AUTO has since selected Shizuku.
