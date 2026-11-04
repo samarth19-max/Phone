@@ -11,12 +11,12 @@ final class Prefs {
     boolean recording() { return prefs.getBoolean("recording", false); }
     void recording(boolean on) { prefs.edit().putBoolean("recording", on).apply(); }
 
-    /** AUTO (Shizuku when ready, else the microphone), SHIZUKU or MIC. */
+    /** AUTO (Shizuku, built-in ADB, then microphone), BUILTIN, SHIZUKU or MIC. */
     String mode() { return prefs.getString("mode", "AUTO"); }
     void mode(String value) { prefs.edit().putString("mode", value).apply(); }
 
     /** Delete recordings older than this many days; 0 keeps everything. */
-    int keepDays() { return prefs.getInt("keep_days", 0); }
+    int keepDays() { return prefs.getInt("keep_days", 30); }
     void keepDays(int days) { prefs.edit().putInt("keep_days", days).apply(); }
 
     String lastStatus() { return prefs.getString("status", ""); }
