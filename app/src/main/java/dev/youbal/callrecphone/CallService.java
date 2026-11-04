@@ -142,9 +142,21 @@ public final class CallService extends InCallService implements CallRecorder.Lis
      * Recording is never automatic. The user must attest to informed agreement for every active call.
      * Any hold, second call, conference, or call-topology change invalidates that consent.
      */
+    private void refreshAutomaticRecorderMode(PhoneApp app) {
+        if (Build.VERSION.SDK_INT < 37 || !"AUTO".equals(app.prefs.mode()) || recordingCall != null || recording) return;
+        CallRecorder.Mode desired = CallRecorderSetup.state(this) == CallRecorderSetup.State.READY
+                ? CallRecorder.Mode.SHIZUKU : CallRecorder.Mode.BUILTIN;
+        if (desired != recorderMode) {
+            recorder.release();
+            recorderMode = desired;
+            recorder = new CallRecorder(this, app.recordingsDir().getAbsolutePath(), this, desired);
+        }
+    }
+
     private void updateRecording() {
         if (recorder == null) return;
         PhoneApp app = PhoneApp.get(this);
+        refreshAutomaticRecorderMode(app);
 
         // A previously paired shell process must not keep recording after API 37 LAN permission is revoked.
         if (Build.VERSION.SDK_INT >= 37 && recorderMode == CallRecorder.Mode.BUILTIN
