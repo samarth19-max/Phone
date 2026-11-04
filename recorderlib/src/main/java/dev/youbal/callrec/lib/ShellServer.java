@@ -76,7 +76,7 @@ public final class ShellServer {
                 if ("QUIT".equals(command.verb)) {
                     // Explicit shutdown also drains any active recording.
                     String stopped = service == null ? "idle" : service.stop();
-                    channel.respond(command.id, "bye\\n" + stopped);
+                    channel.respond(command.id, "bye");
                     break;
                 }
                 if ("PING".equals(command.verb)) {
@@ -102,6 +102,10 @@ public final class ShellServer {
                             break;
                         case "STOP":
                             answer = service.stop();
+                            break;
+                        case "RESET":
+                            if (service != null) service.stop();
+                            answer = "reset";
                             break;
                         default:
                             answer = "error: unknown command " + command.verb;
