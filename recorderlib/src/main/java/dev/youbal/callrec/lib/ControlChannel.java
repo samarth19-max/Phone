@@ -7,6 +7,12 @@ import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.LinkedHashSet;
+import java.util.Iterator;
+import java.security.MessageDigest;
+import java.security.GeneralSecurityException;
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
 
 /**
  * How the app talks to the recorder process it started as the shell user: a few small files in a folder
@@ -38,6 +44,7 @@ final class ControlChannel {
 
     private final File dir;
     private final String token;
+    private final LinkedHashSet<String> consumedCommandIds = new LinkedHashSet<>();
 
     ControlChannel(File dir, String token) {
         this.dir = dir;
@@ -51,17 +58,19 @@ final class ControlChannel {
             dir.mkdirs();
             String id = UUID.randomUUID().toString().replace("-", "");
             List<String> lines = new ArrayList<>();
-            lines.add(token); lines.add(id); lines.add(verb);
+            lines.add(id); lines.add(verb);
             for (String a : args) lines.add(clean(a));
+            lines.add(mac(token, lines));
             File res = new File(dir, RES);
             res.delete();
             write(new File(dir, CMD), lines);
             long end = System.currentTimeMillis() + timeoutMs;
             while (System.currentTimeMillis() < end) {
                 List<String> answer = read(res);
-                if (answer != null && !answer.isEmpty() && answer.get(0).equals(id)) {
+                if (answer != null && answer.size() >= 3 && answer.get(0).equals(id)
+                        && authentic(token, answer.subList(0, answer.size() - 1), answer.get(answer.size() - 1))) {
                     res.delete();
-                    return String.join("\n", answer.subList(1, answer.size()));
+                    return String.join("\n", answer.subList(1, answer.size() - 1));
                 }
                 Thread.sleep(40);
             }
@@ -71,14 +80,15 @@ final class ControlChannel {
     }
 
     void beatOwner(long now) {
-        List<String> lines = new ArrayList<>(); lines.add(token); lines.add(Long.toString(now));
+        List<String> lines = new ArrayList<>(); lines.add(Long.toString(now));
+        lines.add(mac(token, lines));
         try { write(new File(dir, OWNER), lines); } catch (IOException ignored) { /* Expiry safely stops capture. */ }
     }
 
     boolean ownerAlive(long now, long maxAgeMs) {
         List<String> lines = read(new File(dir, OWNER));
-        if (lines == null || lines.size() < 2 || !token.equals(lines.get(0))) return false;
-        try { long beat = Long.parseLong(lines.get(1).trim()); return now - beat <= maxAgeMs && beat <= now + 60_000; }
+        if (lines == null || lines.size() != 2 || !authentic(token, lines.subList(0, 1), lines.get(1))) return false;
+        try { long beat = Long.parseLong(lines.get(0).trim()); return now - beat <= maxAgeMs && beat <= now + 60_000; }
         catch (NumberFormatException e) { return false; }
     }
 
@@ -86,7 +96,7 @@ final class ControlChannel {
 
     boolean alive(long now, long maxAgeMs) {
         List<String> lines = read(new File(dir, ALIVE));
-        if (lines == null || lines.isEmpty()) return false;
+        if (lines == null || lines.size() != 2 || !authentic(token, lines.subList(0, 1), lines.get(1))) return false;
         try { long beat = Long.parseLong(lines.get(0).trim()); return now - beat <= maxAgeMs && beat <= now + 60_000; }
         catch (NumberFormatException e) { return false; }
     }
@@ -109,11 +119,13 @@ final class ControlChannel {
         List<String> lines = new ArrayList<>();
         lines.add(id);
         for (String line : (answer == null ? "" : answer).split("\n", -1)) lines.add(line);
+        lines.add(mac(token, lines));
         try { write(new File(dir, RES), lines); } catch (IOException ignored) { /* The app will time out and report it. */ }
     }
 
     void beat(long now) {
         List<String> lines = new ArrayList<>(); lines.add(Long.toString(now));
+        lines.add(mac(token, lines));
         try { write(new File(dir, ALIVE), lines); } catch (IOException ignored) { /* Shown as not running. */ }
     }
 
@@ -130,6 +142,27 @@ final class ControlChannel {
             values.add(value);
         }
         if (!validCommand(verb, values)) throw new IOException("unsupported control command or argument count");
+    }
+
+    /** HMAC the protocol fields so the shared external-storage files never contain the secret itself. */
+    static String mac(String token, List<String> fields) {
+        try {
+            Mac hmac = Mac.getInstance("HmacSHA256");
+            hmac.init(new SecretKeySpec(token.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
+            byte[] digest = hmac.doFinal(String.join("\n", fields).getBytes(StandardCharsets.UTF_8));
+            StringBuilder hex = new StringBuilder(digest.length * 2);
+            for (byte value : digest) hex.append(String.format(java.util.Locale.ROOT, "%02x", value & 0xff));
+            return hex.toString();
+        } catch (GeneralSecurityException e) {
+            throw new IllegalStateException("HMAC is unavailable", e);
+        }
+    }
+
+    private static boolean authentic(String token, List<String> fields, String suppliedMac) {
+        if (suppliedMac == null || !suppliedMac.matches("[a-f0-9]{64}")) return false;
+        byte[] expected = mac(token, fields).getBytes(StandardCharsets.US_ASCII);
+        byte[] supplied = suppliedMac.getBytes(StandardCharsets.US_ASCII);
+        return MessageDigest.isEqual(expected, supplied);
     }
 
     private static boolean validCommand(String verb, List<String> args) {
