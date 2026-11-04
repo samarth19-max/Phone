@@ -30,7 +30,16 @@ public final class SettingsActivity extends Activity {
     private Runnable pendingLocalNetworkAction;
 
     @Override protected void onCreate(Bundle state) { super.onCreate(state); Ui.init(this); app = PhoneApp.get(this); }
-    @Override protected void onResume() { super.onResume(); build(); }
+    @Override protected void onResume() {
+        super.onResume();
+        if (Build.VERSION.SDK_INT >= 37
+                && !has("android.permission.ACCESS_LOCAL_NETWORK")
+                && BuiltinAccess.state(this) == BuiltinAccess.State.RUNNING) {
+            BuiltinAccess.stop(this);
+            app.prefs.lastStatus("Local network permission was revoked. Stopping built-in Wireless Debugging access.");
+        }
+        build();
+    }
     @Override protected void onActivityResult(int request, int result, Intent data) { super.onActivityResult(request, result, data); build(); }
     @Override public void onRequestPermissionsResult(int request, String[] permissions, int[] grants) {
         super.onRequestPermissionsResult(request, permissions, grants);
