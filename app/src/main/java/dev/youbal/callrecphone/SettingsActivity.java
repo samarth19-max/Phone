@@ -117,7 +117,7 @@ public final class SettingsActivity extends Activity {
 
         step(card, 3, access, "Start recording access", "Lets the app record both sides of a call. Needs Wireless debugging (Android 11 or newer) and has to be started again after every reboot. Skip it to record with the microphone only.");
         if (Build.VERSION.SDK_INT >= 37)
-            card.addView(Ui.text(this, "Android 17 also asks for Local network access when you start built-in Wireless Debugging recording. It is used for this phone's ADB discovery and connection; Shizuku and microphone modes do not need it.", 13, Ui.MUTED));
+            card.addView(Ui.text(this, "Android 17 also asks for Local network access when you start built-in Wireless Debugging recording. It is used for ADB discovery and connection. Revoking it does not stop an already-running shell recorder; use Turn off or Forget pairing to stop that process. Shizuku does not need this permission.", 13, Ui.MUTED));
         switch (builtin) {
             case UNSUPPORTED:
                 card.addView(Ui.text(this, "Not available on this phone (needs Android 11 or newer). Use the Shizuku app below, or the microphone.", 13, Ui.WARN));
