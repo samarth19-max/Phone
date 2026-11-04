@@ -5,6 +5,7 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.graphics.drawable.Icon;
 import android.os.Build;
 import android.os.Handler;
@@ -12,7 +13,9 @@ import android.os.Looper;
 import android.telecom.Call;
 import android.telecom.CallAudioState;
 import android.telecom.InCallService;
+import dev.youbal.callrec.lib.BuiltinAccess;
 import dev.youbal.callrec.lib.CallRecorder;
+import dev.youbal.callrec.lib.CallRecorderSetup;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -32,8 +35,10 @@ public final class CallService extends InCallService implements CallRecorder.Lis
     private final Set<Call> consentedCalls = new HashSet<>();
     private NotificationManager notifications;
     private CallRecorder recorder;
+    private CallRecorder.Mode recorderMode;
     private Call recordingCall;
     private boolean recording;
+    private boolean localAccessRevoked;
 
     @Override public void onCreate() {
         super.onCreate(); instance = this; PhoneApp app = PhoneApp.get(this);
@@ -43,6 +48,19 @@ public final class CallService extends InCallService implements CallRecorder.Lis
         notifications.createNotificationChannel(new NotificationChannel("calls_active", "Call in progress", NotificationManager.IMPORTANCE_LOW));
         CallRecorder.Mode mode;
         try { mode = CallRecorder.Mode.valueOf(app.prefs.mode()); } catch (IllegalArgumentException e) { mode = CallRecorder.Mode.AUTO; }
+        if (Build.VERSION.SDK_INT >= 37) {
+            // An ordinary app microphone source is not a reliable call-audio path on Android 17.
+            // AUTO therefore selects only Shizuku or the explicitly permissioned built-in ADB engine.
+            if (mode == CallRecorder.Mode.MIC) {
+                mode = CallRecorder.Mode.AUTO;
+                app.prefs.mode("AUTO");
+            }
+            if (mode == CallRecorder.Mode.AUTO) {
+                mode = CallRecorderSetup.state(this) == CallRecorderSetup.State.READY
+                        ? CallRecorder.Mode.SHIZUKU : CallRecorder.Mode.BUILTIN;
+            }
+        }
+        recorderMode = mode;
         recorder = new CallRecorder(this, app.recordingsDir().getAbsolutePath(), this, mode);
         app.ensureNames(this::changed);
     }
@@ -127,6 +145,24 @@ public final class CallService extends InCallService implements CallRecorder.Lis
     private void updateRecording() {
         if (recorder == null) return;
         PhoneApp app = PhoneApp.get(this);
+
+        // A previously paired shell process must not keep recording after API 37 LAN permission is revoked.
+        if (Build.VERSION.SDK_INT >= 37 && recorderMode == CallRecorder.Mode.BUILTIN
+                && checkSelfPermission("android.permission.ACCESS_LOCAL_NETWORK") != PackageManager.PERMISSION_GRANTED) {
+            if (recordingCall != null) {
+                recorder.onCallEnded();
+                recordingCall = null;
+            }
+            consentedCalls.clear();
+            attempted.clear();
+            if (!localAccessRevoked) {
+                localAccessRevoked = true;
+                BuiltinAccess.stop(this);
+                app.prefs.lastStatus("Local network access was revoked. Built-in recording was stopped; grant the permission again to use it.");
+            }
+            return;
+        }
+        localAccessRevoked = false;
 
         if (calls.size() != 1) {
             if (recordingCall != null) {
