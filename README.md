@@ -42,7 +42,7 @@ It has the same limits as Shizuku: the recorder process does not survive a resta
 ## Privacy
 
 - Recording is off on a fresh install and starts only after you enable it in Settings. There is no account, analytics backend or upload service in the reviewed application/library source. The built-in setup uses local Wireless Debugging discovery and a local-device ADB connection. The app pins Bouncy Castle 1.86 and Conscrypt 2.8.0; CI checks the resolved versions and the native libraries' 16 KB alignment. The bundled libadb-android 3.1.1 discovery code accepts only addresses assigned to this phone's own network interfaces and verifies that the discovered port is listening locally; it does not accept an arbitrary remote mDNS host.
-- **About the network permission.** The app asks for `INTERNET` and a few Wi-Fi permissions. Android requires `INTERNET` for *any* network socket, even one to the phone itself, and that is the only reason: pairing uses `127.0.0.1`; starting the recorder uses the ADB endpoint discovered by mDNS and validated by libadb-android 3.1.1 against this phone's own network interfaces and a locally listening port. The app does not accept arbitrary remote mDNS hosts. Nothing in the code contacts any other server, and the source is here to check (search for `http` or `Socket`). If that is not acceptable to you, the microphone mode and the Shizuku-app mode need none of it, and you can remove the permission and build the app yourself.
+- **About the network permissions.** The app asks for `INTERNET` and Wi-Fi permissions for the local Wireless Debugging discovery and connection. On Android 17 it also requests `ACCESS_LOCAL_NETWORK` at the point when you enable the built-in Wireless Debugging recorder; this is not requested for microphone or Shizuku recording. Android requires `INTERNET` for *any* network socket, even one to the phone itself, and that is the only reason: pairing uses `127.0.0.1`; starting the recorder uses the ADB endpoint discovered by mDNS and validated by libadb-android 3.1.1 against this phone's own network interfaces and a locally listening port. The app does not accept arbitrary remote mDNS hosts. Nothing in the code contacts any other server, and the source is here to check (search for `http` or `Socket`). If that is not acceptable to you, the microphone mode and the Shizuku-app mode need none of it, and you can remove the permission and build the app yourself.
 - Recordings are kept in the app's own folder (`Android/data/dev.youbal.callrecphone/files/Recordings`). Other apps cannot read them. Sharing is always an explicit action you take.
 - The recorder process talks to the app through a few small files in that folder, protected by a random secret kept in the app's private storage, so another app cannot give it orders.
 - Saved names are read from your contacts only to show and search them, and are not stored by the app.
@@ -53,7 +53,7 @@ Recording a call can require the consent of everyone on it, depending on where y
 
 ## Build it yourself
 
-You need JDK 17 and the Android SDK (API 36). The project targets API 36 and uses Android Gradle Plugin 8.10.1 with Gradle 8.11.1.
+You need JDK 17 and the Android SDK (API 37). The project targets API 37 and uses Android Gradle Plugin 9.5.0 with Gradle 9.6.0.
 
 ```
 git clone https://github.com/samarth19-max/Phone
@@ -65,9 +65,9 @@ The recording library comes from JitPack. To work on the library and the app tog
 
 ## Android compatibility notes
 
-The app's minimum Android version is API 26 (Android 8.0); it is built and targeted against API 36. The source includes edge-to-edge inset handling and predictive Back handling for the custom contacts-detail screen.
+The app's minimum Android version is API 26 (Android 8.0); it is built and targeted against API 37. The source includes edge-to-edge inset handling and predictive Back handling for the custom contacts-detail screen.
 
-The built-in recorder discovers Wireless Debugging using mDNS and connects to a local interface address discovered by mDNS and verified as belonging to this device. Android 17's local-network permission is enforced only for apps targeting API 37 or higher; while this fork targets API 36, Android grants local-network access through the existing `INTERNET` permission. Before increasing targetSdk to 37, this ADB flow must be updated to request `ACCESS_LOCAL_NETWORK` or use a system-mediated discovery flow.
+The built-in recorder discovers Wireless Debugging using mDNS and connects to a local interface address discovered by mDNS and verified as belonging to this device. Because this app targets API 37, Android 17 blocks local-network communication until the user grants `ACCESS_LOCAL_NETWORK`. The app declares this permission and requests it only when the user starts or pairs the built-in Wireless Debugging recorder. If the user denies it, built-in ADB recording remains unavailable, while Shizuku and microphone modes remain available. Android 15 and 16 do not prompt for this permission.
 
 Android 15+ compatibility still needs device-side testing. Call-audio capture depends on the handset/OEM, and the hidden `AudioRecord.Builder.setContext` API used by the shell recorder is not a stable Android SDK contract. Passing a build does not prove that two-sided call recording works on every device.
 
