@@ -13,7 +13,7 @@ It is also the reference app for [**callrec**](https://github.com/Youbal-oops/ca
 - **A full call screen**: answer, decline, silence the ringer, mute, speaker or Bluetooth, hold, keypad, end.
 - **Saved names from everywhere**: Google, phone storage and SIM contacts are merged, and each name shows where it is saved.
 - **A note per number**, shown on the call screen when that person calls or you call them.
-- **Automatic call recording** once a call connects. Play, share or delete from the Recordings tab. Old recordings can delete themselves after 7, 30 or 90 days.
+- **Optional call recording**, initially off. Turn it on explicitly in Settings → Recording; once enabled, eligible one-to-one calls are recorded automatically. Play, share or delete recordings, and optionally delete old ones after 7, 30 or 90 days.
 - **A built-in setup guide** (Settings → Setup) with a tick for each step, and a "how it works" list.
 - **Problem reports stay on the phone.** If something breaks, Settings shows the error with a Copy button.
 
@@ -29,7 +29,7 @@ The same steps are in the app under **Settings → Setup**, with a tick for each
    3. Pull down the notification from Callrec Phone and type the six-digit code into it.
    You only pair once. **After every restart, open the app and tap Start** (Wireless debugging has to be on while it starts). Needs Android 11 or newer.
    *Prefer the Shizuku app?* Install [Shizuku](https://shizuku.rikka.app/download/), start it ([its guide](https://shizuku.rikka.app/guide/setup/)), and allow Callrec Phone in it. Both work; the app uses whichever is on.
-4. **Make a short test call.** The recording appears in the **Recordings** tab.
+4. **Opt in to recording.** In Settings → Recording, tap **Turn recording on**. Recording stays off until you do this. Once enabled, make a short test call; the recording should appear in the **Recordings** tab. Tell everyone on the call that it is being recorded and follow the law where you are.
 
 ## How recording works
 
@@ -41,7 +41,7 @@ It has the same limits as Shizuku: the recorder process does not survive a resta
 
 ## Privacy
 
-- Everything stays on the phone. There is no server, no sign-in and no analytics. Calls, contacts, notes and recordings never leave the device.
+- Recording is off on a fresh install and starts only after you enable it in Settings. There is no account, analytics backend or upload service in the reviewed application/library source. The built-in setup uses local Wireless Debugging discovery and a loopback ADB connection.
 - **About the network permission.** The app asks for `INTERNET` and a few Wi-Fi permissions. Android requires `INTERNET` for *any* network socket, even one to the phone itself, and that is the only reason: it talks to this phone's own wireless debugging on `127.0.0.1` and looks for its pairing dialog on the local network. Nothing in the code contacts any other server, and the source is here to check (search for `http` or `Socket`). If that is not acceptable to you, the microphone mode and the Shizuku-app mode need none of it, and you can remove the permission and build the app yourself.
 - Recordings are kept in the app's own folder (`Android/data/dev.youbal.callrecphone/files/Recordings`). Other apps cannot read them. Sharing is always an explicit action you take.
 - The recorder process talks to the app through a few small files in that folder, protected by a random secret kept in the app's private storage, so another app cannot give it orders.
@@ -53,15 +53,23 @@ Recording a call can require the consent of everyone on it, depending on where y
 
 ## Build it yourself
 
-You need JDK 17 and the Android SDK (API 35).
+You need JDK 17 and the Android SDK (API 36). The project targets API 36 and uses Android Gradle Plugin 8.10.1 with Gradle 8.11.1.
 
 ```
-git clone https://github.com/Youbal-oops/Phone
+git clone https://github.com/samarth19-max/Phone
 cd Phone
 ./gradlew assembleDebug testDebugUnitTest lintDebug
 ```
 
 The recording library comes from JitPack. To work on the library and the app together, clone [callrec](https://github.com/Youbal-oops/callrec) **next to this folder**; the build uses that copy automatically.
+
+## Android compatibility notes
+
+The app's minimum Android version is API 26 (Android 8.0); it is built and targeted against API 36. The source includes edge-to-edge inset handling and predictive Back handling for the custom contacts-detail screen.
+
+The built-in recorder discovers Wireless Debugging using mDNS and connects to this device's loopback interface. Android 17's local-network permission is enforced only for apps targeting API 37 or higher; while this fork targets API 36, Android grants local-network access through the existing `INTERNET` permission. Before increasing targetSdk to 37, this ADB flow must be updated to request `ACCESS_LOCAL_NETWORK` or use a system-mediated discovery flow.
+
+Android 15+ compatibility still needs device-side testing. Call-audio capture depends on the handset/OEM, and the hidden `AudioRecord.Builder.setContext` API used by the shell recorder is not a stable Android SDK contract. Passing a build does not prove that two-sided call recording works on every device.
 
 ## Roadmap
 
