@@ -40,6 +40,9 @@ public final class CallService extends InCallService implements CallRecorder.Lis
     private boolean recording;
     private boolean localAccessRevoked;
     private boolean stopBuiltinAfterRecording;
+    private boolean captureRecoveryPending = true;
+    private boolean captureRecoveryFailed;
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final Handler builtinLeaseHandler = new Handler(Looper.getMainLooper());
     private boolean builtinLeaseActive;
     private final Runnable builtinLeaseBeat = new Runnable() {
@@ -72,6 +75,13 @@ public final class CallService extends InCallService implements CallRecorder.Lis
         }
         recorderMode = mode;
         recorder = new CallRecorder(this, app.recordingsDir().getAbsolutePath(), this, mode);
+        // A new app-process instance must stop any orphaned capture before another call can be recorded.
+        BuiltinAccess.resetCapture(this, ok -> mainHandler.post(() -> {
+            captureRecoveryPending = false;
+            captureRecoveryFailed = !ok;
+            if (!ok) app.prefs.lastStatus("Could not confirm the previous built-in recorder has stopped. Built-in recording is blocked; use Settings → Turn off to retry shutdown.");
+            changed();
+        }));
         app.ensureNames(this::changed);
     }
 
@@ -129,6 +139,8 @@ public final class CallService extends InCallService implements CallRecorder.Lis
                 && (call.getChildren() == null || call.getChildren().isEmpty())
                 && recordingCall == null
                 && !recording
+                && !captureRecoveryPending
+                && !captureRecoveryFailed
                 && !consentedCalls.contains(call);
     }
 
@@ -170,6 +182,7 @@ public final class CallService extends InCallService implements CallRecorder.Lis
         if (recorder == null) return;
         PhoneApp app = PhoneApp.get(this);
         refreshAutomaticRecorderMode(app);
+        if (captureRecoveryPending || captureRecoveryFailed) return;
 
         // Local-network revocation must stop an existing shell process even if AUTO has since selected Shizuku.
         boolean hasLocalNetworkPermission = Build.VERSION.SDK_INT < 37
