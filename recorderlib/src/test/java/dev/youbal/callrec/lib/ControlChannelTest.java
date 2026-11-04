@@ -101,4 +101,25 @@ public class ControlChannelTest {
         shell.clearAlive();
         assertFalse(app.alive(1_000_500, 3000));
     }
+    @Test
+    public void ownerLeaseRequiresMatchingTokenAndExpires() throws Exception {
+        File d = dir();
+        ControlChannel app = new ControlChannel(d, "secret");
+        ControlChannel stranger = new ControlChannel(d, "wrong-token");
+        assertFalse(app.ownerAlive(1_000_000, 5000));
+        app.beatOwner(1_000_000);
+        assertTrue(app.ownerAlive(1_002_000, 5000));
+        assertFalse(app.ownerAlive(1_006_000, 5000));
+        assertFalse(stranger.ownerAlive(1_002_000, 5000));
+        app.clearOwner();
+        assertFalse(app.ownerAlive(1_001_000, 5000));
+    }
+
+    @Test
+    public void ownerLeaseRejectsFutureTimestamps() throws Exception {
+        File d = dir();
+        ControlChannel app = new ControlChannel(d, "secret");
+        app.beatOwner(2_000_000);
+        assertFalse(app.ownerAlive(1_000_000, 5000));
+    }
 }
