@@ -64,7 +64,7 @@ final class ControlChannel {
             lines.add(Long.toString(System.currentTimeMillis()));
             lines.add(verb);
             for (String a : args) lines.add(clean(a));
-            lines.add(mac(token, lines));
+            lines.add(mac(token, "cmd", lines));
             File res = new File(dir, RES);
             res.delete();
             write(new File(dir, CMD), lines);
@@ -72,7 +72,7 @@ final class ControlChannel {
             while (System.currentTimeMillis() < end) {
                 List<String> answer = read(res);
                 if (answer != null && answer.size() >= 3 && answer.get(0).equals(id)
-                        && authentic(token, answer.subList(0, answer.size() - 1), answer.get(answer.size() - 1))) {
+                        && authentic(token, "res", answer.subList(0, answer.size() - 1), answer.get(answer.size() - 1))) {
                     res.delete();
                     return String.join("\n", answer.subList(1, answer.size() - 1));
                 }
@@ -85,13 +85,13 @@ final class ControlChannel {
 
     void beatOwner(long now) {
         List<String> lines = new ArrayList<>(); lines.add(Long.toString(now));
-        lines.add(mac(token, lines));
+        lines.add(mac(token, "owner", lines));
         try { write(new File(dir, OWNER), lines); } catch (IOException ignored) { /* Expiry safely stops capture. */ }
     }
 
     boolean ownerAlive(long now, long maxAgeMs) {
         List<String> lines = read(new File(dir, OWNER));
-        if (lines == null || lines.size() != 2 || !authentic(token, lines.subList(0, 1), lines.get(1))) return false;
+        if (lines == null || lines.size() != 2 || !authentic(token, "owner", lines.subList(0, 1), lines.get(1))) return false;
         try { long beat = Long.parseLong(lines.get(0).trim()); return now - beat <= maxAgeMs && beat <= now + 60_000; }
         catch (NumberFormatException e) { return false; }
     }
@@ -100,7 +100,7 @@ final class ControlChannel {
 
     boolean alive(long now, long maxAgeMs) {
         List<String> lines = read(new File(dir, ALIVE));
-        if (lines == null || lines.size() != 2 || !authentic(token, lines.subList(0, 1), lines.get(1))) return false;
+        if (lines == null || lines.size() != 2 || !authentic(token, "alive", lines.subList(0, 1), lines.get(1))) return false;
         try { long beat = Long.parseLong(lines.get(0).trim()); return now - beat <= maxAgeMs && beat <= now + 60_000; }
         catch (NumberFormatException e) { return false; }
     }
@@ -112,7 +112,7 @@ final class ControlChannel {
         if (lines == null) return null;
         file.delete();
         if (lines.size() < 4
-                || !authentic(token, lines.subList(0, lines.size() - 1), lines.get(lines.size() - 1))) return null;
+                || !authentic(token, "cmd", lines.subList(0, lines.size() - 1), lines.get(lines.size() - 1))) return null;
         String id = lines.get(0);
         long issuedAt;
         try {
@@ -138,13 +138,13 @@ final class ControlChannel {
         List<String> lines = new ArrayList<>();
         lines.add(id);
         for (String line : (answer == null ? "" : answer).split("\n", -1)) lines.add(line);
-        lines.add(mac(token, lines));
+        lines.add(mac(token, "res", lines));
         try { write(new File(dir, RES), lines); } catch (IOException ignored) { /* The app will time out and report it. */ }
     }
 
     void beat(long now) {
         List<String> lines = new ArrayList<>(); lines.add(Long.toString(now));
-        lines.add(mac(token, lines));
+        lines.add(mac(token, "alive", lines));
         try { write(new File(dir, ALIVE), lines); } catch (IOException ignored) { /* Shown as not running. */ }
     }
 
@@ -164,11 +164,11 @@ final class ControlChannel {
     }
 
     /** HMAC the protocol fields so the shared external-storage files never contain the secret itself. */
-    static String mac(String token, List<String> fields) {
+    static String mac(String token, String domain, List<String> fields) {
         try {
             Mac hmac = Mac.getInstance("HmacSHA256");
             hmac.init(new SecretKeySpec(token.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
-            byte[] digest = hmac.doFinal(String.join("\n", fields).getBytes(StandardCharsets.UTF_8));
+            byte[] digest = hmac.doFinal((domain + "\n" + String.join("\n", fields)).getBytes(StandardCharsets.UTF_8));
             StringBuilder hex = new StringBuilder(digest.length * 2);
             for (byte value : digest) hex.append(String.format(java.util.Locale.ROOT, "%02x", value & 0xff));
             return hex.toString();
@@ -177,9 +177,9 @@ final class ControlChannel {
         }
     }
 
-    private static boolean authentic(String token, List<String> fields, String suppliedMac) {
+    private static boolean authentic(String token, String domain, List<String> fields, String suppliedMac) {
         if (suppliedMac == null || !suppliedMac.matches("[a-f0-9]{64}")) return false;
-        byte[] expected = mac(token, fields).getBytes(StandardCharsets.US_ASCII);
+        byte[] expected = mac(token, domain, fields).getBytes(StandardCharsets.US_ASCII);
         byte[] supplied = suppliedMac.getBytes(StandardCharsets.US_ASCII);
         return MessageDigest.isEqual(expected, supplied);
     }
