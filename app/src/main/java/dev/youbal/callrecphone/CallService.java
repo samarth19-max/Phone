@@ -94,6 +94,8 @@ public final class CallService extends InCallService implements CallRecorder.Lis
 
     List<Call> currentCalls() { return new ArrayList<>(calls.keySet()); }
     boolean recordingBusy() { return recording || recordingCall != null; }
+    boolean recordingActive() { return recording; }
+    boolean recordingStarting() { return recordingCall != null && !recording; }
     void refreshRecording() { updateRecording(); }
     /** Stops the recording but not the call. A manual stop requires a fresh per-call consent action to restart. */
     void stopRecording() {
@@ -174,6 +176,9 @@ public final class CallService extends InCallService implements CallRecorder.Lis
                     stopBuiltinAfterRecording = true;
                     recorder.onCallEnded();
                     recordingCall = null;
+                } else if (recording) {
+                    // A user may have pressed Stop already; wait for its save/finalize callback before QUIT.
+                    stopBuiltinAfterRecording = true;
                 } else {
                     stopBuiltinAfterRecording = false;
                     BuiltinAccess.stop(this);
