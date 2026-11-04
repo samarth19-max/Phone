@@ -14,7 +14,7 @@ jobs:
           packages: 'platform-tools platforms;android-37 build-tools;36.0.0 ndk;28.2.13676358'
           log-accepted-android-sdk-licenses: false
       - run: chmod +x gradlew
-      - run: ./gradlew assembleDebug testDebugUnitTest lintDebug
+      - run: ./gradlew assembleDebug testDebugUnitTest :recorderlib:testDebugUnitTest lintDebug
       - name: Verify Android 17 local-network permission gate
         shell: bash
         run: |
@@ -45,6 +45,15 @@ jobs:
           grep -Fq 'return recording || recordingCall != null;' "$service"
           grep -Fq 'Keep forever' "$settings"
           grep -Fq 'prefs.getInt("keep_days", 30)' app/src/main/java/dev/youbal/callrecphone/Prefs.java
+          grep -Fq 'ownerAlive(now, OWNER_MAX_AGE_MS)' recorderlib/src/main/java/dev/youbal/callrec/lib/ShellServer.java
+          grep -Fq 'service.stop(); // drains the encoder and finalizes the .m4a before exit.' recorderlib/src/main/java/dev/youbal/callrec/lib/ShellServer.java
+          grep -Fq 'case "RESET":' recorderlib/src/main/java/dev/youbal/callrec/lib/ShellServer.java
+          grep -Fq 'resetCapture(Context context, ResetListener listener)' recorderlib/src/main/java/dev/youbal/callrec/lib/BuiltinAccess.java
+          grep -Fq 'public static void heartbeat(Context context)' recorderlib/src/main/java/dev/youbal/callrec/lib/BuiltinAccess.java
+          grep -Fq 'public boolean usesBuiltinAccess()' recorderlib/src/main/java/dev/youbal/callrec/lib/CallRecorder.java
+          grep -Fq 'captureRecoveryPending' app/src/main/java/dev/youbal/callrecphone/CallService.java
+          grep -Fq 'ownerLeaseRequiresMatchingTokenAndExpires' recorderlib/src/test/java/dev/youbal/callrec/lib/ControlChannelTest.java
+          grep -Fq 'android:maxSdkVersion="36"' recorderlib/src/main/AndroidManifest.xml
       - name: Verify patched cryptography dependencies
         shell: bash
         run: |
