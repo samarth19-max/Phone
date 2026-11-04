@@ -3,7 +3,7 @@ package dev.youbal.callrecphone;
 import android.content.Context;
 import android.content.SharedPreferences;
 
-/** Local settings. Call recording is opt-in; Shizuku decides whether privileged capture is available. */
+/** Local settings. The global recording switch only enables the feature; CallService requires fresh consent per call. */
 final class Prefs {
     private final SharedPreferences prefs;
     Prefs(Context context) { prefs = context.getSharedPreferences("settings", Context.MODE_PRIVATE); }
