@@ -5,7 +5,8 @@
 ## Changes implemented on this branch
 
 - The built-in ADB launcher quotes every dynamic shell argument using POSIX single-quote escaping. Regression tests cover spaces, empty strings, and embedded quotes with shell metacharacters.
-- The file-backed shell control channel accepts only `START` (exactly three arguments), `STOP`, `RESET`, `QUIT`, and `PING` (no arguments). It rejects malformed IDs, unexpected verbs, invalid argument counts, oversized protocol files, and oversized arguments.
+- The file-backed shell control channel accepts only `START` (exactly three arguments), `STOP`, `RESET`, `QUIT`, and `PING` (no arguments). It rejects malformed IDs, unexpected verbs, invalid argument counts, oversized protocol files, oversized arguments, unauthenticated/tampered messages, expired commands, and replayed request IDs.
+- Commands, responses, liveness, and owner leases use HMAC-SHA256; the shared files no longer contain the raw control token.
 - Control messages are written to unique temporary files and moved into place atomically where the filesystem supports it.
 - The shell process validates its startup argument count and token format.
 - The privileged shell recorder checks that its output path resolves to the app's sibling `Recordings` directory. Canonical-path checks reject traversal and symlink escapes.
@@ -26,7 +27,7 @@ Recordings are written as ordinary `.m4a` files under app-specific external stor
 
 ### Medium — control token is passed in the shell process command line
 
-The random control token is stored in app-private internal storage and passed as an argument when starting `app_process`. This avoids putting the token in the shared control directory, but command-line visibility within shell-level diagnostics remains a concern. A future protocol revision should transfer the token through a narrowly scoped channel that does not expose it in process arguments, without making it readable to other apps.
+The random control token is stored in app-private internal storage and passed as an argument when starting `app_process`. Shared control files now contain only HMAC-SHA256 authenticators, not the token itself; command timestamps and an in-process replay cache limit replay. Command-line visibility within shell-level diagnostics remains a concern. A future protocol revision should transfer the token through a narrowly scoped channel that does not expose it in process arguments, without making it readable to other apps.
 
 ### Medium — hidden Android APIs
 
