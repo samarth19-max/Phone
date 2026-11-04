@@ -25,10 +25,8 @@ android {
 }
 
 dependencies {
-    // Your call-recording library. Resolved from ../callrec when that folder exists, otherwise from JitPack.
-    implementation 'com.github.Youbal-oops:callrec:0.3.0'
-    // Override callrec 0.3.0's old 2.5.3 AAR: it has a reported 4 KB ELF alignment failure on 16 KB devices.
-    implementation 'org.conscrypt:conscrypt-android:2.8.0'
+    // Recorder sources are maintained in this repository under recorderlib/.
+    implementation project(':recorderlib')
     implementation 'androidx.core:core:1.13.1'
     testImplementation 'junit:junit:4.13.2'
 }
