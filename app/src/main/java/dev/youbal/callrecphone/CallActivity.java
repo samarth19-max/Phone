@@ -195,12 +195,16 @@ public final class CallActivity extends Activity {
         safeText.setText(PhoneNumbers.display(phoneOf(call)) + "\n" + stateText(call));
         safeAnswer.setVisibility(ringing ? View.VISIBLE : View.GONE); safeDecline.setVisibility(ringing ? View.VISIBLE : View.GONE); safeEnd.setVisibility(ringing ? View.GONE : View.VISIBLE);
         boolean active = call.getState() == Call.STATE_ACTIVE;
-        boolean recording = service.recordingBusy();
+        boolean recording = service.recordingActive();
+        boolean starting = service.recordingStarting();
+        boolean busy = service.recordingBusy();
         boolean needsConsent = active && service.needsRecordingConsent(call);
-        safeRecordingNotice.setText(recording ? "Recording is active. Everyone on the call must know." : needsConsent ? "Recording has not started. Tell everyone and get their agreement first." : "");
-        safeRecordingNotice.setVisibility(recording || needsConsent ? View.VISIBLE : View.GONE);
+        safeRecordingNotice.setText(recording ? "Recording is active. Everyone on the call must know."
+                : starting ? "Starting recording…"
+                : needsConsent ? "Recording has not started. Tell everyone and get their agreement first." : "");
+        safeRecordingNotice.setVisibility(recording || starting || needsConsent ? View.VISIBLE : View.GONE);
         safeRecord.setVisibility(needsConsent ? View.VISIBLE : View.GONE);
-        safeStop.setVisibility(recording ? View.VISIBLE : View.GONE);
+        safeStop.setVisibility(busy ? View.VISIBLE : View.GONE);
     }
     private void bindFull() {
         CallService service = CallService.instance;
@@ -229,9 +233,12 @@ public final class CallActivity extends Activity {
         setActive(speaker, "Speaker", audio != null && audio.getRoute() == CallAudioState.ROUTE_SPEAKER);
         setActive(hold, "Pause", held); hold.setAlpha((call.getDetails().getCallCapabilities() & Call.Details.CAPABILITY_HOLD) != 0 ? 1f : .35f);
 
-        boolean recording = service.recordingBusy();
-        recordingPill.setVisibility(recording ? View.VISIBLE : View.GONE);
-        stop.setVisibility(recording && !ringing ? View.VISIBLE : View.GONE);
+        boolean recording = service.recordingActive();
+        boolean starting = service.recordingStarting();
+        boolean busy = service.recordingBusy();
+        recordingPill.setText(recording ? "● Recording" : "● Starting recording…");
+        recordingPill.setVisibility(recording || starting ? View.VISIBLE : View.GONE);
+        stop.setVisibility(busy && !ringing ? View.VISIBLE : View.GONE);
         renderRecordingConsent(service, call);
 
         othersBox.removeAllViews();
