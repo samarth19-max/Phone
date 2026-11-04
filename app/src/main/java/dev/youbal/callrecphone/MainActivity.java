@@ -302,7 +302,7 @@ public final class MainActivity extends Activity {
     }
 
     private void detailPage(Person person) {
-        selected = person; page = "detail"; frame(person.name, null);
+        selected = person; page = "detail"; frame(person.name, null); updatePredictiveBackCallback();
         ScrollView scroll = new ScrollView(this); scroll.setVerticalScrollBarEnabled(false); LinearLayout content = Ui.column(this); scroll.addView(content); body.addView(scroll, lp(-1, 0, 1));
         LinearLayout hero = Ui.column(this); hero.setGravity(Gravity.CENTER_HORIZONTAL); hero.setPadding(0, dp(8), 0, dp(12));
         hero.addView(Ui.avatar(this, person.name, 96), lp(dp(96), dp(96)));
