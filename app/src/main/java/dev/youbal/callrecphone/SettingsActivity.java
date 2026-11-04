@@ -191,15 +191,15 @@ public final class SettingsActivity extends Activity {
     private void recordingCard() {
         LinearLayout card = Ui.card(this); content.addView(card); card.addView(Ui.title(this, "Recording", 18));
         boolean on = app.prefs.recording();
-        card.addView(Ui.text(this, on ? "On. Calls with one person are recorded once they connect." : "Off. Nothing is recorded.", 14, on ? Ui.OK : Ui.MUTED));
+        card.addView(Ui.text(this, on ? "On. Recording starts only after you confirm that everyone on each call was told and agreed." : "Off. Nothing is recorded.", 14, on ? Ui.OK : Ui.MUTED));
         card.addView(Ui.button(this, on ? "Turn recording off" : "Turn recording on", !on, v -> {
             if (on) {
                 app.prefs.recording(false);
                 build();
             } else {
                 new AlertDialog.Builder(this)
-                    .setTitle("Enable automatic call recording?")
-                    .setMessage("When enabled, eligible one-to-one calls are recorded automatically. This app does not notify the other person for you. Tell everyone on the call before recording and follow the law where you are. You can turn recording off here at any time.")
+                    .setTitle("Enable call recording?")
+                    .setMessage("This enables the recording feature, but does not start recording calls automatically. Before each call is recorded, the call screen will require you to confirm that you have told every participant and each person has explicitly agreed. This app cannot notify the other caller or verify consent. Stop recording immediately if anyone objects.")
                     .setNegativeButton("Cancel", null)
                     .setPositiveButton("Enable recording", (dialog, which) -> {
                         app.prefs.recording(true);
@@ -208,9 +208,11 @@ public final class SettingsActivity extends Activity {
                     .show();
             }
         }));
-        String[] modes = {"AUTO", "BUILTIN", "SHIZUKU", "MIC"}, modeNames = {"Automatic: both sides if access is on, else the microphone", "Built-in access only: both sides", "Shizuku app only: both sides", "Microphone only: needs speakerphone"};
+        String[] modes = {"AUTO", "BUILTIN", "SHIZUKU", "MIC"}, modeNames = {"Automatic: Shizuku, built-in access, then microphone", "Built-in access only: both sides where supported", "Shizuku app only: both sides where supported", "Microphone only: speakerphone; not reliable for call audio on Android 17"};
         int current = 0; for (int i = 0; i < modes.length; i++) if (modes[i].equals(app.prefs.mode())) current = i;
         card.addView(Ui.button(this, "Source: " + modeNames[current].split(":")[0], false, v -> Ui.sheet(this, "Recording source", modeNames, indexOf(modes, app.prefs.mode()), n -> { app.prefs.mode(modes[n]); build(); }).show()));
+        if (Build.VERSION.SDK_INT >= 37 && app.prefs.mode().equals("MIC"))
+            card.addView(Ui.text(this, "Android 17 restricts ordinary-app microphone capture during active voice calls. Microphone mode may not capture either side of the call. For call recording, use Shizuku or the built-in Wireless Debugging recorder.", 13, Ui.WARN));
         int[] days = {0, 7, 30, 90}; String[] dayNames = {"Keep forever", "Delete after 7 days", "Delete after 30 days", "Delete after 90 days"};
         int keep = 0; for (int i = 0; i < days.length; i++) if (days[i] == app.prefs.keepDays()) keep = i;
         card.addView(Ui.button(this, dayNames[keep], false, v -> Ui.sheet(this, "Keep recordings", dayNames, indexOf(days, app.prefs.keepDays()), n -> { app.prefs.keepDays(days[n]); app.io.execute(() -> new RecordingStore(app.recordingsDir()).deleteOlderThan(days[n], System.currentTimeMillis())); build(); }).show()));
@@ -232,7 +234,7 @@ public final class SettingsActivity extends Activity {
             {"Dialpad", "Type or paste a number. Saved names show as suggestions."},
             {"Call screen", "Shows who is calling, where they are saved, your last call and your note. Answer, Decline, Silence, Mute, Speaker, Hold, Keypad, End."},
             {"Notes", "A short note per number. Tap the note on the call screen or in a contact."},
-            {"Recording", "Connected calls with one person record by themselves. Stop it from the call screen."},
+            {"Recording", "For each eligible one-to-one call, the call screen asks you to confirm that everyone has been told and has agreed. A visible recording indicator and stop control remain available."},
             {"Recordings", "Play, share or delete. Old ones can delete themselves."},
             {"Something broke", "Settings → Problem report → Copy."}};
         for (String[] item : items) { TextView t = Ui.title(this, item[0], 15); t.setPadding(0, dp(10), 0, 0); card.addView(t); card.addView(Ui.text(this, item[1], 13, Ui.MUTED)); }
