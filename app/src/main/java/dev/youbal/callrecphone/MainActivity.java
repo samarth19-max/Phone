@@ -75,7 +75,17 @@ public final class MainActivity extends Activity {
         handleIntent(getIntent()); show(page);
     }
     @Override protected void onNewIntent(Intent intent) { super.onNewIntent(intent); setIntent(intent); handleIntent(intent); show(page); }
-    @Override protected void onResume() { super.onResume(); app.recordingListeners.add(recordingsChanged); loadAll(); }
+    @Override protected void onResume() {
+        super.onResume();
+        if (Build.VERSION.SDK_INT >= 37
+                && checkSelfPermission("android.permission.ACCESS_LOCAL_NETWORK") != android.content.pm.PackageManager.PERMISSION_GRANTED
+                && BuiltinAccess.state(this) == BuiltinAccess.State.RUNNING) {
+            BuiltinAccess.stop(this);
+            app.prefs.lastStatus("Local network permission was revoked. Stopping built-in Wireless Debugging access.");
+        }
+        app.recordingListeners.add(recordingsChanged);
+        loadAll();
+    }
     @Override protected void onPause() { app.recordingListeners.remove(recordingsChanged); stopPlayback(); super.onPause(); }
     /** Android 16 targeting API 36 no longer dispatches onBackPressed(). Intercept only the in-app detail page;
      * leave the root screens to the system so the normal predictive back-to-home animation remains available. */
