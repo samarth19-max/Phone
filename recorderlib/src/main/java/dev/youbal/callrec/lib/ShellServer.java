@@ -1,0 +1,168 @@
+package dev.youbal.callrec.lib;
+
+import android.os.Looper;
+
+import java.io.File;
+
+/**
+ * The recorder process for built-in access. It is started over this phone's own wireless debugging, so it runs
+ * as the shell user, which is what lets it capture call audio. It does the same job as the Shizuku user service
+ * (it runs {@link RecorderService}) but is reached through {@link ControlChannel} files instead of binder.
+ *
+ * <p>Started like this (see {@link BuiltinAccess}):
+ * <pre>CLASSPATH=base.apk app_process /system/bin --nice-name=callrec_server dev.youbal.callrec.lib.ShellServer DIR TOKEN APK</pre>
+ *
+ * <p>It exits by itself when the app is uninstalled, and when it is told QUIT. It does not survive a reboot.
+ */
+public final class ShellServer {
+
+    private static final long BEAT_MS = 1000, APK_CHECK_MS = 15_000, IDLE_MS = 100, OWNER_MAX_AGE_MS = 5000;
+
+    private ShellServer() {
+    }
+
+    /** args: control folder, token, path of the app's apk. */
+    public static void main(String[] args) {
+        if (args.length != 3 || !args[1].matches("[a-f0-9]{48}")) {
+            System.err.println("usage: ShellServer <control dir> <48-character token> <apk>");
+            return;
+        }
+        final File dir = new File(args[0]);
+        final File apk = new File(args[2]);
+        try {
+            if (!".callrec".equals(dir.getCanonicalFile().getName())
+                    || !apk.isAbsolute() || !apk.isFile() || !dir.mkdirs() && !dir.isDirectory()) {
+                System.err.println("invalid recorder paths");
+                return;
+            }
+        } catch (java.io.IOException e) {
+            System.err.println("invalid recorder paths");
+            return;
+        }
+        final ControlChannel channel = new ControlChannel(dir, args[1]);
+        if (channel.alive(System.currentTimeMillis(), 3000)) {
+            return; // One is already running.
+        }
+        // The shell-identity context needs a main looper in this process.
+        Looper.prepareMainLooper();
+
+        Thread beat = new Thread(() -> {
+            while (true) {
+                channel.beat(System.currentTimeMillis());
+                sleep(BEAT_MS);
+            }
+        }, "callrec-beat");
+        beat.setDaemon(true);
+        beat.start();
+
+        new Thread(() -> serve(channel, apk), "callrec-server").start();
+        Looper.loop();
+    }
+
+    private static void serve(ControlChannel channel, File apk) {
+        RecorderService service = null;
+        String creationError = null;
+        long lastApkCheck = System.currentTimeMillis();
+        try {
+            while (true) {
+                long now = System.currentTimeMillis();
+                if (now - lastApkCheck >= APK_CHECK_MS) {
+                    if (!apk.exists()) {
+                        break; // Uninstalled or replaced: nothing left to serve.
+                    }
+                    lastApkCheck = now;
+                }
+                // A detached shell recorder must stop when its owning app process disappears.
+                if (service != null && service.isCapturing() && !channel.ownerAlive(now, OWNER_MAX_AGE_MS)) {
+                    String stopped = service.stop(); // drains the encoder and finalizes the .m4a.
+                    if (!service.isCapturing()) break;
+                    // A blocked audio read did not close in time. Keep the server alive and retry; never claim cleanup succeeded.
+                    sleep(IDLE_MS);
+                    continue;
+                }
+                ControlChannel.Command command = channel.poll();
+                if (command == null) {
+                    sleep(IDLE_MS);
+                    continue;
+                }
+                if ("QUIT".equals(command.verb)) {
+                    // Explicit shutdown drains any active recording. Do not exit if the worker is still alive.
+                    String stopped = service == null ? "idle" : service.stop();
+                    if (service != null && service.isCapturing()) {
+                        channel.respond(command.id, "error: capture did not stop; shell server will keep retrying");
+                        continue;
+                    }
+                    channel.respond(command.id, "bye");
+                    break;
+                }
+                if ("PING".equals(command.verb)) {
+                    channel.respond(command.id, "pong");
+                    continue;
+                }
+                if (service == null && creationError == null) {
+                    try {
+                        service = new RecorderService();
+                    } catch (Throwable t) {
+                        creationError = "error: could not set up the shell identity: " + t;
+                    }
+                }
+                if (service == null) {
+                    channel.respond(command.id, creationError);
+                    continue;
+                }
+                String answer;
+                try {
+                    switch (command.verb) {
+                        case "START": {
+                            String outputDir = command.arg(0);
+                            String number = command.arg(1);
+                            String direction = command.arg(2);
+                            if (!RecordingPath.isAllowedOutputDir(dir, outputDir)) {
+                                answer = "error: output directory is outside the app recordings folder";
+                            } else if (number.length() > 128
+                                    || !("in".equals(direction) || "out".equals(direction) || "call".equals(direction))) {
+                                answer = "error: invalid recording metadata";
+                            } else {
+                                answer = service.start(outputDir, number, direction);
+                            }
+                            break;
+                        }
+                        case "STOP":
+                            answer = service.stop();
+                            break;
+                        case "RESET":
+                            if (service != null) {
+                                service.stop();
+                                if (service.isCapturing()) {
+                                    answer = "error: previous capture did not stop; shell watchdog will continue retrying";
+                                    break;
+                                }
+                            }
+                            answer = "reset";
+                            break;
+                        default:
+                            answer = "error: unknown command " + command.verb;
+                    }
+                } catch (Throwable t) {
+                    answer = "error: " + t;
+                }
+                channel.respond(command.id, answer);
+            }
+        } finally {
+            if (service != null && service.isCapturing()) {
+                try { service.stop(); } catch (Throwable ignored) { /* Process exit is the final capture stop. */ }
+            }
+            channel.clearOwner();
+            channel.clearAlive();
+            System.exit(0);
+        }
+    }
+
+    private static void sleep(long ms) {
+        try {
+            Thread.sleep(ms);
+        } catch (InterruptedException ignored) {
+            // Keep serving.
+        }
+    }
+}

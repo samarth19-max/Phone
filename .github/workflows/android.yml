@@ -4,14 +4,107 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@v4
         with:
-          packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
+          packages: 'platform-tools platforms;android-37 build-tools;36.0.0 ndk;28.2.13676358'
           log-accepted-android-sdk-licenses: false
       - run: chmod +x gradlew
-      - run: ./gradlew assembleDebug testDebugUnitTest lintDebug
+      - run: ./gradlew assembleDebug testDebugUnitTest :recorderlib:testDebugUnitTest lintDebug
+      - name: Verify Android 17 local-network permission gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Fq 'android.permission.ACCESS_LOCAL_NETWORK' app/src/main/AndroidManifest.xml
+          grep -Fq 'Build.VERSION.SDK_INT < 37' app/src/main/java/dev/youbal/callrecphone/SettingsActivity.java
+          grep -Fq 'requestPermissions(new String[]{"android.permission.ACCESS_LOCAL_NETWORK"}, REQ_LOCAL_NETWORK)' app/src/main/java/dev/youbal/callrecphone/SettingsActivity.java
+          ! grep -Fq 'BuiltinAccess.start' app/src/main/java/dev/youbal/callrecphone/MainActivity.java
+      - name: Verify per-call consent and recording safeguards
+        shell: bash
+        run: |
+          set -euo pipefail
+          service="app/src/main/java/dev/youbal/callrecphone/CallService.java"
+          screen="app/src/main/java/dev/youbal/callrecphone/CallActivity.java"
+          settings="app/src/main/java/dev/youbal/callrecphone/SettingsActivity.java"
+          grep -Fq 'needsRecordingConsent(Call call)' "$service"
+          grep -Fq 'confirmRecordingConsent(Call call)' "$service"
+          grep -Fq 'if (!consentedCalls.contains(call) || !attempted.add(call)) return;' "$service"
+          grep -Fq 'hasConferenceChildren(call)' "$service"
+          grep -Fq 'call.getChildren().isEmpty()' "$service"
+          grep -Fq 'I have told everyone on this call' "$screen"
+          grep -Fq 'This app cannot send a reliable announcement into the phone-call audio' "$screen"
+          grep -Fq 'CallActionReceiver.STOP_RECORDING' "$service"
+          grep -Fq 'if (recording || recordingCall != null)' "$service"
+          grep -Fq 'mode == CallRecorder.Mode.MIC' "$service"
+          grep -Fq ': CallRecorder.Mode.BUILTIN' "$service"
+          grep -Fq 'String[] modes = new String[]' "$settings" || grep -Fq 'modes = new String[]{"AUTO", "BUILTIN", "SHIZUKU"}' "$settings"
+          grep -Fq 'return recording || recordingCall != null;' "$service"
+          grep -Fq 'Keep forever' "$settings"
+          grep -Fq 'prefs.getInt("keep_days", 30)' app/src/main/java/dev/youbal/callrecphone/Prefs.java
+          grep -Fq 'ownerAlive(now, OWNER_MAX_AGE_MS)' recorderlib/src/main/java/dev/youbal/callrec/lib/ShellServer.java
+          grep -Fq 'String stopped = service.stop();' recorderlib/src/main/java/dev/youbal/callrec/lib/ShellServer.java
+          grep -Fq 'case "RESET":' recorderlib/src/main/java/dev/youbal/callrec/lib/ShellServer.java
+          grep -Fq 'resetCapture(Context context, ResetListener listener)' recorderlib/src/main/java/dev/youbal/callrec/lib/BuiltinAccess.java
+          grep -Fq 'public static void heartbeat(Context context)' recorderlib/src/main/java/dev/youbal/callrec/lib/BuiltinAccess.java
+          grep -Fq 'public boolean usesBuiltinAccess()' recorderlib/src/main/java/dev/youbal/callrec/lib/CallRecorder.java
+          grep -Fq 'captureRecoveryPending' app/src/main/java/dev/youbal/callrecphone/CallService.java
+          grep -Fq 'ownerLeaseRequiresMatchingTokenAndExpires' recorderlib/src/test/java/dev/youbal/callrec/lib/ControlChannelTest.java
+          grep -Fq 'android:maxSdkVersion="36"' recorderlib/src/main/AndroidManifest.xml
+      - name: Verify TLS-only Wireless Debugging and serialized control channel
+        shell: bash
+        run: |
+          set -euo pipefail
+          builtin="recorderlib/src/main/java/dev/youbal/callrec/lib/BuiltinAccess.java"
+          channel="recorderlib/src/main/java/dev/youbal/callrec/lib/ControlChannel.java"
+          tests="recorderlib/src/test/java/dev/youbal/callrec/lib/ControlChannelTest.java"
+          grep -Fq 'manager.connectTls(app, 12_000)' "$builtin"
+          ! grep -Fq 'manager.autoConnect' "$builtin"
+          grep -Fq 'private static final Object REQUEST_LOCK' "$channel"
+          grep -Fq 'requestsFromDifferentInstancesAreSerialized' "$tests"
+          grep -Fq 'private static boolean validCommand' "$channel"
+          grep -Fq 'ShellCommand.quote(apk)' "$builtin"
+          grep -Fq 'RecordingPath.isAllowedOutputDir(dir, outputDir)' recorderlib/src/main/java/dev/youbal/callrec/lib/ShellServer.java
+          grep -Fq 'shellRejectsUnknownCommandsAndWrongArgumentCounts' "$tests"
+          grep -Fq 'HmacSHA256' "$channel"
+          grep -Fq 'mac(token, "cmd"' "$channel"
+          grep -Fq 'mac(token, "owner"' "$channel"
+          grep -Fq 'MAX_COMMAND_AGE_MS' "$channel"
+          grep -Fq 'shellRejectsTamperedAndReplayedCommands' "$tests"
+          grep -Fq 'shellRejectsExpiredAuthenticatedCommands' "$tests"
+          grep -Fq 'ownerLeaseDoesNotWriteTheSecretIntoSharedStorage' "$tests"
+          grep -Fq 'escapesSingleQuotesWithoutLeavingTheArgument' recorderlib/src/test/java/dev/youbal/callrec/lib/ShellCommandTest.java
+          grep -Fq 'acceptsOnlySiblingRecordingsDirectory' recorderlib/src/test/java/dev/youbal/callrec/lib/RecordingPathTest.java
+      - name: Verify patched cryptography dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :app:dependencyInsight --dependency bcprov-jdk15to18 --configuration debugRuntimeClasspath | tee /tmp/bouncycastle.txt
+          grep -q 'org.bouncycastle:bcprov-jdk15to18:1.86' /tmp/bouncycastle.txt
+          ./gradlew :app:dependencyInsight --dependency conscrypt-android --configuration debugRuntimeClasspath | tee /tmp/conscrypt.txt
+          grep -q 'org.conscrypt:conscrypt-android:2.8.0' /tmp/conscrypt.txt
+      - name: Verify 16 KB native-library and APK alignment
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk="app/build/outputs/apk/debug/app-debug.apk"
+          unpack="$(mktemp -d)"
+          unzip -q "$apk" 'lib/*' -d "$unpack"
+          readelf="$ANDROID_HOME/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"
+          if [[ -d "$unpack/lib" ]]; then
+            mapfile -d '' libs < <(find "$unpack/lib" -type f -name '*.so' -print0)
+            for lib in "${libs[@]}"; do
+              echo "Checking ELF LOAD segments: $lib"
+              while IFS= read -r alignment; do
+                [[ -n "$alignment" ]] || continue
+                if (( alignment < 0x4000 )); then
+                  echo "ERROR: $lib has a LOAD segment aligned to $alignment (less than 16 KB)"
+                  exit 1
+                fi
+              done < <("$readelf" -lW "$lib" | awk '$1 == "LOAD" { print $NF }')
+            done
+          fi
+          "$ANDROID_HOME/build-tools/36.0.0/zipalign" -c -P 16 -v 4 "$apk"

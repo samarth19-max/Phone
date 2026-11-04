@@ -24,24 +24,70 @@ import java.util.Locale;
 
 /** Setup (five steps with ticks), recording options, how the app works, and problem reports. */
 public final class SettingsActivity extends Activity {
-    private static final int REQ_PERMISSIONS = 19, REQ_ROLE = 12, REQ_SHIZUKU = 71;
+    private static final int REQ_PERMISSIONS = 19, REQ_ROLE = 12, REQ_SHIZUKU = 71, REQ_PAIR_NOTIFICATIONS = 72, REQ_LOCAL_NETWORK = 73;
     private PhoneApp app;
     private LinearLayout content;
+    private Runnable pendingLocalNetworkAction;
 
     @Override protected void onCreate(Bundle state) { super.onCreate(state); Ui.init(this); app = PhoneApp.get(this); }
-    @Override protected void onResume() { super.onResume(); build(); }
+    @Override protected void onResume() {
+        super.onResume();
+        if (Build.VERSION.SDK_INT >= 37
+                && !has("android.permission.ACCESS_LOCAL_NETWORK")
+                && BuiltinAccess.state(this) == BuiltinAccess.State.RUNNING) {
+            BuiltinAccess.stop(this);
+            app.prefs.lastStatus("Local network permission was revoked. Stopping built-in Wireless Debugging access.");
+        }
+        build();
+    }
     @Override protected void onActivityResult(int request, int result, Intent data) { super.onActivityResult(request, result, data); build(); }
-    @Override public void onRequestPermissionsResult(int request, String[] permissions, int[] grants) { super.onRequestPermissionsResult(request, permissions, grants); app.reloadNames(null); build(); }
+    @Override public void onRequestPermissionsResult(int request, String[] permissions, int[] grants) {
+        super.onRequestPermissionsResult(request, permissions, grants);
+        app.reloadNames(null);
+        if (request == REQ_LOCAL_NETWORK) {
+            Runnable action = pendingLocalNetworkAction;
+            pendingLocalNetworkAction = null;
+            build();
+            if (has("android.permission.ACCESS_LOCAL_NETWORK")) {
+                if (action != null) action.run();
+            } else {
+                Toast.makeText(this, "Local network access is required for built-in Wireless Debugging recording. Enable it in App info → Permissions → Nearby devices, or use Shizuku. Microphone call recording may be limited by the phone's audio policy.", Toast.LENGTH_LONG).show();
+            }
+            return;
+        }
+        build();
+        if (request == REQ_PAIR_NOTIFICATIONS) {
+            if (grants.length > 0 && grants[0] == PackageManager.PERMISSION_GRANTED) {
+                launchPairingSettings();
+            } else {
+                Toast.makeText(this, "Notifications are required to enter the Wireless debugging pairing code.", Toast.LENGTH_LONG).show();
+            }
+        }
+    }
 
     private int dp(float n) { return Ui.dp(this, n); }
     private LinearLayout.LayoutParams lp(int w, int h, float weight) { return new LinearLayout.LayoutParams(w, h, weight); }
     private LinearLayout.LayoutParams lp(int w, int h) { return new LinearLayout.LayoutParams(w, h); }
     private boolean has(String permission) { return checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED; }
+
+    /** Request LAN access only when the user chooses the built-in ADB recorder. */
+    private void withLocalNetworkPermission(Runnable action) {
+        if (Build.VERSION.SDK_INT < 37 || has("android.permission.ACCESS_LOCAL_NETWORK")) {
+            action.run();
+            return;
+        }
+        pendingLocalNetworkAction = action;
+        requestPermissions(new String[]{"android.permission.ACCESS_LOCAL_NETWORK"}, REQ_LOCAL_NETWORK);
+    }
     private boolean isDefaultPhone() { return DefaultPhone.held(this); }
     private String[] permissions() {
-        return Build.VERSION.SDK_INT >= 33
-            ? new String[]{Manifest.permission.READ_CONTACTS, Manifest.permission.READ_CALL_LOG, Manifest.permission.CALL_PHONE, Manifest.permission.RECORD_AUDIO, Manifest.permission.POST_NOTIFICATIONS}
-            : new String[]{Manifest.permission.READ_CONTACTS, Manifest.permission.READ_CALL_LOG, Manifest.permission.CALL_PHONE, Manifest.permission.RECORD_AUDIO};
+        if (Build.VERSION.SDK_INT >= 37) {
+            return new String[]{Manifest.permission.READ_CONTACTS, Manifest.permission.READ_CALL_LOG, Manifest.permission.CALL_PHONE, Manifest.permission.POST_NOTIFICATIONS};
+        }
+        if (Build.VERSION.SDK_INT >= 33) {
+            return new String[]{Manifest.permission.READ_CONTACTS, Manifest.permission.READ_CALL_LOG, Manifest.permission.CALL_PHONE, Manifest.permission.RECORD_AUDIO, Manifest.permission.POST_NOTIFICATIONS};
+        }
+        return new String[]{Manifest.permission.READ_CONTACTS, Manifest.permission.READ_CALL_LOG, Manifest.permission.CALL_PHONE, Manifest.permission.RECORD_AUDIO};
     }
     private boolean permissionsDone() { for (String p : permissions()) if (!has(p)) return false; return true; }
 
@@ -82,10 +128,12 @@ public final class SettingsActivity extends Activity {
             else Toast.makeText(this, "This phone does not offer the phone-app role.", Toast.LENGTH_LONG).show();
         }));
 
-        step(card, 3, access, "Start recording access", "Lets the app record both sides of a call. Needs Wireless debugging (Android 11 or newer) and has to be started again after every reboot. Skip it to record with the microphone only.");
+        step(card, 3, access, "Start recording access", "Enables the built-in recorder to capture both sides of a call where the phone supports it. Needs Wireless debugging (Android 11 or newer) and has to be started again after every reboot. Shizuku is an alternative. On Android 17, recording uses Shizuku or built-in Wireless Debugging, not the ordinary microphone.");
+        if (Build.VERSION.SDK_INT >= 37)
+            card.addView(Ui.text(this, "Android 17 also asks for Local network access when you start built-in Wireless Debugging recording. It is used for ADB discovery and connection. Revoking it does not stop an already-running shell recorder; use Turn off or Forget pairing to stop that process. Shizuku does not need this permission.", 13, Ui.MUTED));
         switch (builtin) {
             case UNSUPPORTED:
-                card.addView(Ui.text(this, "Not available on this phone (needs Android 11 or newer). Use the Shizuku app below, or the microphone.", 13, Ui.WARN));
+                card.addView(Ui.text(this, "Not available on this phone (needs Android 11 or newer). Use Shizuku below. Microphone mode may not capture call audio on Android 17.", 13, Ui.WARN));
                 break;
             case NOT_PAIRED:
                 card.addView(Ui.button(this, "Pair and start", true, v -> pairDialog()));
@@ -115,19 +163,44 @@ public final class SettingsActivity extends Activity {
     private void pairDialog() {
         new AlertDialog.Builder(this).setTitle("Pair with wireless debugging").setMessage(
             "1. Turn on Developer options, then Wireless debugging (Wi-Fi must be on).\n"
-            + "2. Tap \u201CPair device with pairing code\u201D and leave that box open.\n"
+            + "2. Tap “Pair device with pairing code” and leave that box open.\n"
             + "3. Pull down the notification from this app and type the six-digit code.\n\n"
-            + "You only do this once. Allow notifications first if you have not.")
+            + "You only do this once. Allow notifications first if you have not. On Android 17, also allow Local network access when prompted; it is used to find this phone's own Wireless Debugging service.")
             .setPositiveButton("Continue", (d, n) -> {
-                startForegroundService(new Intent(this, PairingService.class));
-                startActivity(new Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS));
+                if (Build.VERSION.SDK_INT >= 33 && !has(Manifest.permission.POST_NOTIFICATIONS)) {
+                    requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, REQ_PAIR_NOTIFICATIONS);
+                } else {
+                    launchPairingSettings();
+                }
             }).setNegativeButton("Cancel", null).show();
     }
+
+    private void launchPairingSettings() {
+        if (Build.VERSION.SDK_INT >= 33 && !has(Manifest.permission.POST_NOTIFICATIONS)) {
+            Toast.makeText(this, "Allow notifications before pairing.", Toast.LENGTH_LONG).show();
+            return;
+        }
+        withLocalNetworkPermission(this::launchPairingSettingsWithPermission);
+    }
+
+    private void launchPairingSettingsWithPermission() {
+        startForegroundService(new Intent(this, PairingService.class));
+        startActivity(new Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS));
+    }
+
     private void startAccess() {
-        Toast.makeText(this, "Starting\u2026", Toast.LENGTH_SHORT).show();
+        withLocalNetworkPermission(this::startAccessWithPermission);
+    }
+
+    private void startAccessWithPermission() {
+        Toast.makeText(this, "Starting…", Toast.LENGTH_SHORT).show();
         BuiltinAccess.start(this, new BuiltinAccess.Listener() {
             @Override public void onStatus(String message) { app.main.post(() -> Toast.makeText(SettingsActivity.this, message, Toast.LENGTH_SHORT).show()); }
-            @Override public void onDone(boolean ok, String message) { app.prefs.lastStatus(message); app.main.post(() -> { Toast.makeText(SettingsActivity.this, message, Toast.LENGTH_LONG).show(); build(); }); }
+            @Override public void onDone(boolean ok, String message) {
+                app.prefs.lastStatus(message);
+                if (ok && CallService.instance != null) CallService.instance.retryCaptureRecovery();
+                app.main.post(() -> { Toast.makeText(SettingsActivity.this, message, Toast.LENGTH_LONG).show(); build(); });
+            }
         });
     }
 
@@ -135,11 +208,48 @@ public final class SettingsActivity extends Activity {
     private void recordingCard() {
         LinearLayout card = Ui.card(this); content.addView(card); card.addView(Ui.title(this, "Recording", 18));
         boolean on = app.prefs.recording();
-        card.addView(Ui.text(this, on ? "On. Calls with one person are recorded once they connect." : "Off. Nothing is recorded.", 14, on ? Ui.OK : Ui.MUTED));
-        card.addView(Ui.button(this, on ? "Turn recording off" : "Turn recording on", !on, v -> { app.prefs.recording(!on); build(); }));
-        String[] modes = {"AUTO", "BUILTIN", "SHIZUKU", "MIC"}, modeNames = {"Automatic: both sides if access is on, else the microphone", "Built-in access only: both sides", "Shizuku app only: both sides", "Microphone only: needs speakerphone"};
-        int current = 0; for (int i = 0; i < modes.length; i++) if (modes[i].equals(app.prefs.mode())) current = i;
-        card.addView(Ui.button(this, "Source: " + modeNames[current].split(":")[0], false, v -> Ui.sheet(this, "Recording source", modeNames, indexOf(modes, app.prefs.mode()), n -> { app.prefs.mode(modes[n]); build(); }).show()));
+        card.addView(Ui.text(this, on ? "On. Recording starts only after you confirm that everyone on each call was told and agreed." : "Off. Nothing is recorded.", 14, on ? Ui.OK : Ui.MUTED));
+        card.addView(Ui.button(this, on ? "Turn recording off" : "Turn recording on", !on, v -> {
+            if (on) {
+                app.prefs.recording(false);
+                build();
+            } else {
+                new AlertDialog.Builder(this)
+                    .setTitle("Enable call recording?")
+                    .setMessage("This enables the recording feature, but does not start recording calls automatically. Before each call is recorded, the call screen will require you to confirm that you have told every participant and each person has explicitly agreed. This app cannot notify the other caller or verify consent. Stop recording immediately if anyone objects.")
+                    .setNegativeButton("Cancel", null)
+                    .setPositiveButton("Enable recording", (dialog, which) -> {
+                        app.prefs.recording(true);
+                        build();
+                    })
+                    .show();
+            }
+        }));
+        String[] modes;
+        String[] modeNames;
+        if (Build.VERSION.SDK_INT >= 37) {
+            if ("MIC".equals(app.prefs.mode())) app.prefs.mode("AUTO");
+            modes = new String[]{"AUTO", "BUILTIN", "SHIZUKU"};
+            modeNames = new String[]{
+                "Automatic: Shizuku or built-in Wireless Debugging",
+                "Built-in Wireless Debugging only: both sides where supported",
+                "Shizuku only: both sides where supported"
+            };
+            card.addView(Ui.text(this, "Android 17 restricts ordinary-app microphone capture during active voice calls. Microphone-only recording is unavailable on this Android version; AUTO uses Shizuku or built-in Wireless Debugging instead.", 13, Ui.MUTED));
+        } else {
+            modes = new String[]{"AUTO", "BUILTIN", "SHIZUKU", "MIC"};
+            modeNames = new String[]{
+                "Automatic: Shizuku, built-in access, then microphone",
+                "Built-in access only: both sides where supported",
+                "Shizuku app only: both sides where supported",
+                "Microphone only: hears the far end on speakerphone"
+            };
+        }
+        int current = 0;
+        for (int i = 0; i < modes.length; i++) if (modes[i].equals(app.prefs.mode())) current = i;
+        card.addView(Ui.button(this, "Source: " + modeNames[current].split(":")[0], false,
+                v -> Ui.sheet(this, "Recording source", modeNames, indexOf(modes, app.prefs.mode()),
+                        n -> { app.prefs.mode(modes[n]); build(); }).show()));
         int[] days = {0, 7, 30, 90}; String[] dayNames = {"Keep forever", "Delete after 7 days", "Delete after 30 days", "Delete after 90 days"};
         int keep = 0; for (int i = 0; i < days.length; i++) if (days[i] == app.prefs.keepDays()) keep = i;
         card.addView(Ui.button(this, dayNames[keep], false, v -> Ui.sheet(this, "Keep recordings", dayNames, indexOf(days, app.prefs.keepDays()), n -> { app.prefs.keepDays(days[n]); app.io.execute(() -> new RecordingStore(app.recordingsDir()).deleteOlderThan(days[n], System.currentTimeMillis())); build(); }).show()));
@@ -161,7 +271,7 @@ public final class SettingsActivity extends Activity {
             {"Dialpad", "Type or paste a number. Saved names show as suggestions."},
             {"Call screen", "Shows who is calling, where they are saved, your last call and your note. Answer, Decline, Silence, Mute, Speaker, Hold, Keypad, End."},
             {"Notes", "A short note per number. Tap the note on the call screen or in a contact."},
-            {"Recording", "Connected calls with one person record by themselves. Stop it from the call screen."},
+            {"Recording", "For each eligible one-to-one call, the call screen asks you to confirm that everyone has been told and has agreed. A visible recording indicator and stop control remain available."},
             {"Recordings", "Play, share or delete. Old ones can delete themselves."},
             {"Something broke", "Settings → Problem report → Copy."}};
         for (String[] item : items) { TextView t = Ui.title(this, item[0], 15); t.setPadding(0, dp(10), 0, 0); card.addView(t); card.addView(Ui.text(this, item[1], 13, Ui.MUTED)); }
@@ -179,6 +289,6 @@ public final class SettingsActivity extends Activity {
         String version = ""; try { version = getPackageManager().getPackageInfo(getPackageName(), 0).versionName; } catch (PackageManager.NameNotFoundException ignored) { /* Shown without a version. */ }
         card.addView(Ui.text(this, "Callrec Phone " + version + ". Open source. No account, no ads, no tracking: your calls, contacts and recordings never leave the phone. The network permission is only used to talk to this phone\u2019s own wireless debugging.", 13, Ui.MUTED));
         card.addView(Ui.text(this, "Call recording by callrec. Uses this phone\u2019s own wireless debugging, or the Shizuku app if you prefer it.", 13, Ui.MUTED));
-        card.addView(Ui.button(this, "Source code", false, v -> startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/Youbal-oops/Phone")))));
+        card.addView(Ui.button(this, "Source code", false, v -> startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/samarth19-max/Phone")))));
     }
 }

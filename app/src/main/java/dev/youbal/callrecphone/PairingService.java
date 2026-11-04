@@ -85,6 +85,7 @@ public final class PairingService extends Service {
         if (finished) return;
         finished = true; main.removeCallbacks(giveUp);
         PhoneApp.get(this).prefs.lastStatus(message);
+        if (ok && CallService.instance != null) CallService.instance.retryCaptureRecovery();
         if (discovery != null) { try { discovery.close(); } catch (Exception ignored) { /* Already stopped. */ } discovery = null; }
         stopForeground(STOP_FOREGROUND_DETACH);
         notifications.notify(NOTIFICATION, new Notification.Builder(this, CHANNEL).setSmallIcon(R.drawable.ic_phone).setContentTitle(ok ? "Recording access is on" : "Recording access is off").setContentText(message).setAutoCancel(true).build());

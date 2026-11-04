@@ -1,6 +1,6 @@
 # Third-party notices
 
-- **callrec** (MIT, Youbal): the call-recording library this app is built around. https://github.com/Youbal-oops/callrec
+- **callrec** (MIT, Youbal): recorder library source vendored in `recorderlib/` from https://github.com/Youbal-oops/callrec. Local changes add an app-owner lease watchdog and startup recovery reset.
 - **libadb-android** (GPL-3.0-or-later OR Apache-2.0; used here under Apache-2.0, Muntashir Al-Islam): pairs with and connects to the phone's own wireless debugging. https://github.com/MuntashirAkon/libadb-android
 - **spake2-android** (LGPL-3.0, Muntashir Al-Islam): used by libadb-android for the pairing handshake. It is used unmodified as a separate library; you can replace it by rebuilding this app with a different version, and the full source of this app is public. https://github.com/MuntashirAkon/spake2-java
 - **Conscrypt** (Apache-2.0, Google): TLS for wireless debugging. https://github.com/google/conscrypt

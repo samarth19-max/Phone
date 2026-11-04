@@ -20,6 +20,8 @@ import android.text.TextWatcher;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.window.OnBackInvokedCallback;
+import android.window.OnBackInvokedDispatcher;
 import android.widget.BaseAdapter;
 import android.widget.EditText;
 import android.widget.HorizontalScrollView;
@@ -64,6 +66,8 @@ public final class MainActivity extends Activity {
     private MediaPlayer player;
     private String playing = "";
     private final Runnable recordingsChanged = this::refreshLists;
+    private final OnBackInvokedCallback detailBackCallback = () -> show("contacts");
+    private boolean detailBackCallbackRegistered;
 
     // ---- lifecycle ---------------------------------------------------------------------------------------------------
     @Override protected void onCreate(Bundle state) {
@@ -71,9 +75,45 @@ public final class MainActivity extends Activity {
         handleIntent(getIntent()); show(page);
     }
     @Override protected void onNewIntent(Intent intent) { super.onNewIntent(intent); setIntent(intent); handleIntent(intent); show(page); }
-    @Override protected void onResume() { super.onResume(); app.recordingListeners.add(recordingsChanged); loadAll(); }
+    @Override protected void onResume() {
+        super.onResume();
+        if (Build.VERSION.SDK_INT >= 37
+                && checkSelfPermission("android.permission.ACCESS_LOCAL_NETWORK") != android.content.pm.PackageManager.PERMISSION_GRANTED
+                && BuiltinAccess.state(this) == BuiltinAccess.State.RUNNING) {
+            BuiltinAccess.stop(this);
+            app.prefs.lastStatus("Local network permission was revoked. Stopping built-in Wireless Debugging access.");
+        }
+        app.recordingListeners.add(recordingsChanged);
+        loadAll();
+    }
     @Override protected void onPause() { app.recordingListeners.remove(recordingsChanged); stopPlayback(); super.onPause(); }
-    @Override public void onBackPressed() { if (page.equals("detail")) show("contacts"); else super.onBackPressed(); }
+    /** Android 16 targeting API 36 no longer dispatches onBackPressed(). Intercept only the in-app detail page;
+     * leave the root screens to the system so the normal predictive back-to-home animation remains available. */
+    private void updatePredictiveBackCallback() {
+        if (Build.VERSION.SDK_INT < 33) return;
+        OnBackInvokedDispatcher dispatcher = getOnBackInvokedDispatcher();
+        boolean needsCallback = page.equals("detail");
+        if (needsCallback && !detailBackCallbackRegistered) {
+            dispatcher.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT, detailBackCallback);
+            detailBackCallbackRegistered = true;
+        } else if (!needsCallback && detailBackCallbackRegistered) {
+            dispatcher.unregisterOnBackInvokedCallback(detailBackCallback);
+            detailBackCallbackRegistered = false;
+        }
+    }
+
+    @Override public void onBackPressed() {
+        if (Build.VERSION.SDK_INT < 33 && page.equals("detail")) show("contacts");
+        else if (Build.VERSION.SDK_INT < 33) super.onBackPressed();
+    }
+
+    @Override protected void onDestroy() {
+        if (Build.VERSION.SDK_INT >= 33 && detailBackCallbackRegistered) {
+            getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback(detailBackCallback);
+            detailBackCallbackRegistered = false;
+        }
+        super.onDestroy();
+    }
 
     private void handleIntent(Intent intent) {
         if (Intent.ACTION_DIAL.equals(intent.getAction())) { Uri data = intent.getData(); dialed = data == null ? "" : data.getSchemeSpecificPart(); page = "dialpad"; }
@@ -167,6 +207,7 @@ public final class MainActivity extends Activity {
             case "detail": if (selected != null) { detailPage(selected); break; }
             default: page = "recents"; recentsPage();
         }
+        updatePredictiveBackCallback();
     }
 
     private void listArea() {
@@ -186,10 +227,7 @@ public final class MainActivity extends Activity {
         if (!isDefaultPhone() || !has(Manifest.permission.READ_CONTACTS) || !CallLogs.allowed(app))
             body.addView(notice("Finish setup", "Make this your phone app and allow contacts and call log. Takes a minute.", "Open setup", v -> startActivity(new Intent(this, SettingsActivity.class))));
         if (app.prefs.recording() && BuiltinAccess.state(this) == BuiltinAccess.State.STOPPED && CallRecorderSetup.state(this) != CallRecorderSetup.State.READY)
-            body.addView(notice("Recording access is off", "Calls are not recorded until it is started again (this happens after a restart). Turn on Wireless debugging first.", "Start it", v -> BuiltinAccess.start(this, new BuiltinAccess.Listener() {
-                @Override public void onStatus(String message) { }
-                @Override public void onDone(boolean ok, String message) { app.prefs.lastStatus(message); app.main.post(() -> { toast(message); show(page); }); }
-            })));
+            body.addView(notice("Recording access is off", "Start Wireless Debugging recording access again after the phone restarts.", "Open setup", v -> startActivity(new Intent(this, SettingsActivity.class))));
         HorizontalScrollView strip = new HorizontalScrollView(this); strip.setHorizontalScrollBarEnabled(false); LinearLayout filters = Ui.row(this); strip.addView(filters);
         for (String[] f : new String[][]{{"all", "All"}, {"missed", "Missed"}, {"outgoing", "Outgoing"}, {"incoming", "Incoming"}}) {
             String key = f[0]; filters.addView(Ui.chip(this, f[1], recentFilter.equals(key), v -> { recentFilter = key; recentsPage(); }), lp(-2, dp(36), 0, 0, 8, 0));
@@ -271,7 +309,7 @@ public final class MainActivity extends Activity {
     }
 
     private void detailPage(Person person) {
-        selected = person; page = "detail"; frame(person.name, null);
+        selected = person; page = "detail"; frame(person.name, null); updatePredictiveBackCallback();
         ScrollView scroll = new ScrollView(this); scroll.setVerticalScrollBarEnabled(false); LinearLayout content = Ui.column(this); scroll.addView(content); body.addView(scroll, lp(-1, 0, 1));
         LinearLayout hero = Ui.column(this); hero.setGravity(Gravity.CENTER_HORIZONTAL); hero.setPadding(0, dp(8), 0, dp(12));
         hero.addView(Ui.avatar(this, person.name, 96), lp(dp(96), dp(96)));

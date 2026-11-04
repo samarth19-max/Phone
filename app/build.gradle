@@ -2,14 +2,14 @@ plugins { id 'com.android.application' }
 
 android {
     namespace 'dev.youbal.callrecphone'
-    compileSdk 35
+    compileSdk 37
 
     defaultConfig {
         applicationId 'dev.youbal.callrecphone'
         minSdk 26
-        targetSdk 35
-        versionCode 3
-        versionName '0.0.1'
+        targetSdk 37
+        versionCode 5
+        versionName '0.0.3'
     }
 
     compileOptions {
@@ -25,8 +25,18 @@ android {
 }
 
 dependencies {
-    // Your call-recording library. Resolved from ../callrec when that folder exists, otherwise from JitPack.
-    implementation 'com.github.Youbal-oops:callrec:0.3.0'
+    // Recorder sources are maintained in this repository under recorderlib/.
+    implementation project(':recorderlib')
     implementation 'androidx.core:core:1.13.1'
     testImplementation 'junit:junit:4.13.2'
+}
+
+configurations.configureEach {
+    resolutionStrategy.eachDependency {
+        if (requested.group == 'org.bouncycastle' && requested.name == 'bcprov-jdk15to18') {
+            // callrec 0.3.0 currently requests 1.81; pin the patched release for CVE-2026-8763.
+            useVersion '1.86'
+            because 'Bouncy Castle versions before 1.85 are affected by CVE-2026-8763'
+        }
+    }
 }

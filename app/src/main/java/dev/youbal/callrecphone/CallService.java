@@ -5,6 +5,7 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.graphics.drawable.Icon;
 import android.os.Build;
 import android.os.Handler;
@@ -12,7 +13,9 @@ import android.os.Looper;
 import android.telecom.Call;
 import android.telecom.CallAudioState;
 import android.telecom.InCallService;
+import dev.youbal.callrec.lib.BuiltinAccess;
 import dev.youbal.callrec.lib.CallRecorder;
+import dev.youbal.callrec.lib.CallRecorderSetup;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -28,10 +31,27 @@ public final class CallService extends InCallService implements CallRecorder.Lis
     private static final int NOTIFICATION = 41;
     private final Map<Call, Call.Callback> calls = new LinkedHashMap<>();
     private final Set<Call> attempted = new HashSet<>();
+    /** Per-call, in-memory consent only. It is never remembered across calls, holds, or conference changes. */
+    private final Set<Call> consentedCalls = new HashSet<>();
     private NotificationManager notifications;
     private CallRecorder recorder;
+    private CallRecorder.Mode recorderMode;
     private Call recordingCall;
     private boolean recording;
+    private boolean localAccessRevoked;
+    private boolean stopBuiltinAfterRecording;
+    private boolean captureRecoveryPending = true;
+    private boolean captureRecoveryFailed;
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private final Handler builtinLeaseHandler = new Handler(Looper.getMainLooper());
+    private boolean builtinLeaseActive;
+    private final Runnable builtinLeaseBeat = new Runnable() {
+        @Override public void run() {
+            if (!builtinLeaseActive) return;
+            BuiltinAccess.heartbeat(CallService.this);
+            builtinLeaseHandler.postDelayed(this, 1000);
+        }
+    };
 
     @Override public void onCreate() {
         super.onCreate(); instance = this; PhoneApp app = PhoneApp.get(this);
@@ -41,7 +61,27 @@ public final class CallService extends InCallService implements CallRecorder.Lis
         notifications.createNotificationChannel(new NotificationChannel("calls_active", "Call in progress", NotificationManager.IMPORTANCE_LOW));
         CallRecorder.Mode mode;
         try { mode = CallRecorder.Mode.valueOf(app.prefs.mode()); } catch (IllegalArgumentException e) { mode = CallRecorder.Mode.AUTO; }
+        if (Build.VERSION.SDK_INT >= 37) {
+            // An ordinary app microphone source is not a reliable call-audio path on Android 17.
+            // AUTO therefore selects only Shizuku or the explicitly permissioned built-in ADB engine.
+            if (mode == CallRecorder.Mode.MIC) {
+                mode = CallRecorder.Mode.AUTO;
+                app.prefs.mode("AUTO");
+            }
+            if (mode == CallRecorder.Mode.AUTO) {
+                mode = CallRecorderSetup.state(this) == CallRecorderSetup.State.READY
+                        ? CallRecorder.Mode.SHIZUKU : CallRecorder.Mode.BUILTIN;
+            }
+        }
+        recorderMode = mode;
         recorder = new CallRecorder(this, app.recordingsDir().getAbsolutePath(), this, mode);
+        // A new app-process instance must stop any orphaned capture before another call can be recorded.
+        BuiltinAccess.resetCapture(this, ok -> mainHandler.post(() -> {
+            captureRecoveryPending = false;
+            captureRecoveryFailed = !ok;
+            if (!ok) app.prefs.lastStatus("Could not confirm the previous built-in recorder has stopped. Built-in recording is blocked; use Settings → Turn off to retry shutdown.");
+            changed();
+        }));
         app.ensureNames(this::changed);
     }
 
@@ -60,7 +100,7 @@ public final class CallService extends InCallService implements CallRecorder.Lis
         super.onCallRemoved(call);
         Call.Callback callback = calls.remove(call);
         if (callback != null) call.unregisterCallback(callback);
-        attempted.remove(call); changed();
+        attempted.remove(call); consentedCalls.remove(call); changed();
     }
 
     @Override public void onBringToForeground(boolean dialpad) { bringForward(); }
@@ -72,10 +112,49 @@ public final class CallService extends InCallService implements CallRecorder.Lis
     }
 
     List<Call> currentCalls() { return new ArrayList<>(calls.keySet()); }
-    boolean recordingBusy() { return recording; }
+    boolean recordingBusy() { return recording || recordingCall != null; }
+    boolean recordingActive() { return recording; }
+    boolean recordingStarting() { return recordingCall != null && !recording; }
     void refreshRecording() { updateRecording(); }
-    /** Stops the recording but not the call. */
-    void stopRecording() { if (recordingCall != null) { recorder.onCallEnded(); recordingCall = null; } }
+    /** Stops the recording but not the call. A manual stop requires a fresh per-call consent action to restart. */
+    void stopRecording() {
+        if (recordingCall != null) {
+            Call stopped = recordingCall;
+            consentedCalls.remove(stopped);
+            attempted.remove(stopped);
+            recorder.onCallEnded();
+            recordingCall = null;
+            changed();
+        }
+    }
+
+    /** True only for an active, single-party Telecom call that has not yet received per-call consent. */
+    boolean needsRecordingConsent(Call call) {
+        PhoneApp app = PhoneApp.get(this);
+        return call != null
+                && app.prefs.recording()
+                && calls.size() == 1
+                && calls.containsKey(call)
+                && call.getState() == Call.STATE_ACTIVE
+                && (call.getChildren() == null || call.getChildren().isEmpty())
+                && recordingCall == null
+                && !recording
+                && !(recorderMode == CallRecorder.Mode.BUILTIN && (captureRecoveryPending || captureRecoveryFailed))
+                && !consentedCalls.contains(call);
+    }
+
+    /** Called only after the user attests that all participants have been told and have agreed. */
+    void confirmRecordingConsent(Call call) {
+        if (!needsRecordingConsent(call)) return;
+        consentedCalls.add(call);
+        attempted.remove(call);
+        updateRecording();
+        changed();
+    }
+
+    private boolean hasConferenceChildren(Call call) {
+        return call.getChildren() != null && !call.getChildren().isEmpty();
+    }
 
     static String numberOf(Call call) { return call.getDetails().getHandle() == null ? "" : call.getDetails().getHandle().getSchemeSpecificPart(); }
     private static boolean incoming(Call call) {
@@ -83,32 +162,188 @@ public final class CallService extends InCallService implements CallRecorder.Lis
     }
 
     // ---- recording -----------------------------------------------------------------------------------------------
-    /** Records a single connected call. Stops on hold, a second call, the end of the call, or when switched off. */
+    /**
+     * Recording is never automatic. The user must attest to informed agreement for every active call.
+     * Any hold, second call, conference, or call-topology change invalidates that consent.
+     */
+    private CallRecorder.Mode desiredRecorderMode(PhoneApp app) {
+        CallRecorder.Mode requested;
+        try { requested = CallRecorder.Mode.valueOf(app.prefs.mode()); }
+        catch (IllegalArgumentException e) { requested = CallRecorder.Mode.AUTO; }
+        if (Build.VERSION.SDK_INT >= 37) {
+            if (requested == CallRecorder.Mode.MIC) {
+                app.prefs.mode("AUTO");
+                requested = CallRecorder.Mode.AUTO;
+            }
+            if (requested == CallRecorder.Mode.AUTO) {
+                return CallRecorderSetup.state(this) == CallRecorderSetup.State.READY
+                        ? CallRecorder.Mode.SHIZUKU : CallRecorder.Mode.BUILTIN;
+            }
+        }
+        return requested;
+    }
+
+    private void refreshRecorderMode(PhoneApp app) {
+        if (recordingCall != null || recording) return;
+        CallRecorder.Mode desired = desiredRecorderMode(app);
+        if (desired != recorderMode) {
+            recorder.release();
+            recorderMode = desired;
+            recorder = new CallRecorder(this, app.recordingsDir().getAbsolutePath(), this, desired);
+        }
+    }
+
+    /** Retry the startup recovery after the user has successfully started or re-paired Wireless Debugging. */
+    void retryCaptureRecovery() {
+        if (recorderMode != CallRecorder.Mode.BUILTIN) return;
+        captureRecoveryPending = true;
+        captureRecoveryFailed = false;
+        BuiltinAccess.resetCapture(this, ok -> mainHandler.post(() -> {
+            captureRecoveryPending = false;
+            captureRecoveryFailed = !ok;
+            if (!ok) PhoneApp.get(this).prefs.lastStatus("The previous built-in recorder did not acknowledge shutdown. Built-in recording remains blocked for safety.");
+            changed();
+        }));
+    }
+
     private void updateRecording() {
         if (recorder == null) return;
         PhoneApp app = PhoneApp.get(this);
-        if (recordingCall != null) {
-            if (!app.prefs.recording() || calls.size() != 1 || !calls.containsKey(recordingCall) || recordingCall.getState() != Call.STATE_ACTIVE) { recorder.onCallEnded(); recordingCall = null; }
+        refreshRecorderMode(app);
+        if (recorderMode == CallRecorder.Mode.BUILTIN && (captureRecoveryPending || captureRecoveryFailed)) return;
+
+        // Local-network revocation must stop an existing shell process even if AUTO has since selected Shizuku.
+        boolean hasLocalNetworkPermission = Build.VERSION.SDK_INT < 37
+                || checkSelfPermission("android.permission.ACCESS_LOCAL_NETWORK") == PackageManager.PERMISSION_GRANTED;
+        if (Build.VERSION.SDK_INT >= 37 && !hasLocalNetworkPermission) {
+            if (!localAccessRevoked) {
+                localAccessRevoked = true;
+                app.prefs.lastStatus("Local network access was revoked. Built-in Wireless Debugging access is being stopped.");
+            }
+            if (recorderMode == CallRecorder.Mode.BUILTIN) {
+                if (recordingCall != null) {
+                    // Let the recorder flush and close the audio file before QUIT stops the shell process.
+                    stopBuiltinAfterRecording = true;
+                    recorder.onCallEnded();
+                    recordingCall = null;
+                } else if (recording) {
+                    // A user may have pressed Stop already; wait for its save/finalize callback before QUIT.
+                    stopBuiltinAfterRecording = true;
+                } else {
+                    stopBuiltinAfterRecording = false;
+                    BuiltinAccess.stop(this);
+                }
+                consentedCalls.clear();
+                attempted.clear();
+                return;
+            } else if (BuiltinAccess.state(this) == BuiltinAccess.State.RUNNING) {
+                BuiltinAccess.stop(this);
+            }
+        } else {
+            localAccessRevoked = false;
+        }
+
+        if (calls.size() != 1) {
+            if (recordingCall != null) {
+                recorder.onCallEnded();
+                recordingCall = null;
+            }
+            consentedCalls.clear();
+            attempted.clear();
             return;
         }
-        if (!app.prefs.recording() || calls.size() != 1) return;
+
         Call call = calls.keySet().iterator().next();
-        if (call.getState() != Call.STATE_ACTIVE || !attempted.add(call)) return;
+        boolean activeSingleParty = call.getState() == Call.STATE_ACTIVE && !hasConferenceChildren(call);
+
+        if (recordingCall != null) {
+            if (!app.prefs.recording() || !calls.containsKey(recordingCall) || recordingCall != call || !activeSingleParty) {
+                Call stopped = recordingCall;
+                recorder.onCallEnded();
+                recordingCall = null;
+                consentedCalls.remove(stopped);
+                attempted.remove(stopped);
+            }
+            return;
+        }
+
+        if (!app.prefs.recording()) {
+            consentedCalls.remove(call);
+            attempted.remove(call);
+            return;
+        }
+
+        if (!activeSingleParty) {
+            consentedCalls.remove(call);
+            attempted.remove(call);
+            return;
+        }
+
+        // Global enablement is not consent for this specific call.
+        if (!consentedCalls.contains(call) || !attempted.add(call)) return;
+
         recordingCall = call;
+        startBuiltinLease();
         recorder.onCallActive(numberOf(call), incoming(call) ? CallRecorder.IN : CallRecorder.OUT);
     }
 
+    private void stopBuiltinIfPending() {
+        stopBuiltinLease();
+        if (stopBuiltinAfterRecording) {
+            stopBuiltinAfterRecording = false;
+            BuiltinAccess.stop(this);
+        }
+    }
+
+    private void startBuiltinLease() {
+        if (builtinLeaseActive || recorder == null || !recorder.usesBuiltinAccess()) return;
+        builtinLeaseActive = true;
+        BuiltinAccess.heartbeat(this);
+        builtinLeaseHandler.postDelayed(builtinLeaseBeat, 1000);
+    }
+
+    private void stopBuiltinLease() {
+        if (!builtinLeaseActive) return;
+        builtinLeaseActive = false;
+        builtinLeaseHandler.removeCallbacks(builtinLeaseBeat);
+        BuiltinAccess.clearHeartbeat(this);
+    }
     private void status(String text) { PhoneApp app = PhoneApp.get(this); app.prefs.lastStatus(text); changed(); }
-    @Override public void onRecordingStarted() { recording = true; status("Recording this call"); }
+    @Override public void onRecordingStarted() { recording = true; status("Recording started; you confirmed everyone agreed"); }
     @Override public void onRecordingSaved(String path, String source, int seconds, int audiblePercent) {
-        recording = false; recordingCall = null; status("Saved a " + seconds + " s recording"); notifySaved();
+        recording = false; recordingCall = null; status("Saved a " + seconds + " s recording"); notifySaved(); stopBuiltinIfPending();
     }
     @Override public void onRecordingSilent(String path, String source, int seconds, int audiblePercent) {
-        recording = false; recordingCall = null; new File(path).delete();
-        status("The recording had no sound, so it was discarded. Check Shizuku, or try the microphone mode.");
+        recording = false;
+        if (recordingCall != null) {
+            consentedCalls.remove(recordingCall);
+            attempted.remove(recordingCall);
+        }
+        recordingCall = null;
+        new File(path).delete();
+        status("The recording contained no usable audio and was discarded. Check the selected recording engine.");
+        stopBuiltinIfPending();
     }
-    @Override public void onShizukuUnavailable() { recording = false; recordingCall = null; status("Recording access is off, so this call was not recorded. Start it in Settings → Setup."); }
-    @Override public void onError(String message) { recording = false; recordingCall = null; status("Recording failed: " + message); }
+    @Override public void onShizukuUnavailable() {
+        recording = false;
+        if (recordingCall != null) {
+            consentedCalls.remove(recordingCall);
+            attempted.remove(recordingCall);
+        }
+        recordingCall = null;
+        status("Recording access is unavailable, so this call was not recorded. Start Shizuku or built-in Wireless Debugging access in Settings.");
+        stopBuiltinIfPending();
+    }
+    @Override public void onError(String message) {
+        recording = false;
+        if (recordingCall != null) {
+            consentedCalls.remove(recordingCall);
+            attempted.remove(recordingCall);
+        }
+        recordingCall = null;
+        status("Recording failed: " + message);
+        stopBuiltinIfPending();
+    }
     private void notifySaved() { for (Runnable r : new ArrayList<>(PhoneApp.get(this).recordingListeners)) r.run(); }
 
     // ---- notification --------------------------------------------------------------------------------------------
@@ -120,6 +355,10 @@ public final class CallService extends InCallService implements CallRecorder.Lis
     void act(String what) {
         Call focus = null;
         for (Call c : currentCalls()) if (c.getState() == Call.STATE_RINGING) { focus = c; break; }
+        if (CallActionReceiver.STOP_RECORDING.equals(what)) {
+            stopRecording();
+            return;
+        }
         if (focus == null && !calls.isEmpty()) focus = currentCalls().get(0);
         if (focus == null) return;
         if (CallActionReceiver.ANSWER.equals(what) && focus.getState() == Call.STATE_RINGING) focus.answer(focus.getDetails().getVideoState());
@@ -139,19 +378,28 @@ public final class CallService extends InCallService implements CallRecorder.Lis
             String number = numberOf(focus); String saved = PhoneApp.get(this).phoneName(number);
             String title = !saved.isEmpty() ? saved : number.isEmpty() ? "Private number" : PhoneNumbers.display(number);
             Notification.Builder builder = new Notification.Builder(this, ringing && !CallActivity.visible ? "calls" : "calls_active").setOnlyAlertOnce(true)
-                .setSmallIcon(R.drawable.ic_phone).setContentTitle(title).setContentText(ringing ? "Incoming call" : recording ? "Recording · tap for controls" : "Call in progress · tap for controls")
+                .setSmallIcon(R.drawable.ic_phone).setContentTitle(title).setContentText(ringing ? "Incoming call" : (recording || recordingCall != null) ? "Recording · tap for controls" : "Call in progress · tap for controls")
                 .setCategory(Notification.CATEGORY_CALL).setOngoing(true).setContentIntent(open).setVisibility(Notification.VISIBILITY_PRIVATE);
-            if (ringing) { builder.setFullScreenIntent(open, true); builder.addAction(action("Decline", CallActionReceiver.DECLINE, 42)); builder.addAction(action("Answer", CallActionReceiver.ANSWER, 43)); }
-            else builder.addAction(action("End call", CallActionReceiver.END, 44));
+            if (ringing) {
+                builder.setFullScreenIntent(open, true);
+                builder.addAction(action("Decline", CallActionReceiver.DECLINE, 42));
+                builder.addAction(action("Answer", CallActionReceiver.ANSWER, 43));
+            } else {
+                if (recording || recordingCall != null) builder.addAction(action("Stop recording", CallActionReceiver.STOP_RECORDING, 45));
+                builder.addAction(action("End call", CallActionReceiver.END, 44));
+            }
             notifications.notify(NOTIFICATION, builder.build());
         }
         for (Runnable listener : new ArrayList<>(listeners)) listener.run();
     }
 
     @Override public void onDestroy() {
+        // Leave the last owner timestamp on disk: ShellServer detects abrupt service/process death.
+        builtinLeaseActive = false;
+        builtinLeaseHandler.removeCallbacks(builtinLeaseBeat);
         if (recorder != null) { if (recordingCall != null) recorder.onCallEnded(); recorder.release(); }
         for (Map.Entry<Call, Call.Callback> e : calls.entrySet()) e.getKey().unregisterCallback(e.getValue());
-        calls.clear(); notifications.cancel(NOTIFICATION); instance = null;
+        calls.clear(); consentedCalls.clear(); attempted.clear(); notifications.cancel(NOTIFICATION); instance = null;
         for (Runnable r : new ArrayList<>(listeners)) r.run();
         super.onDestroy();
     }
