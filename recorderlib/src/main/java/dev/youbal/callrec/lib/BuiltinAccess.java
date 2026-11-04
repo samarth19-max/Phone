@@ -16,12 +16,13 @@ import java.security.SecureRandom;
 
 /**
  * Call-audio access with no other app. The phone's own wireless debugging (Android 11+) is paired with once, using the
- * six-digit code it shows; after that this class connects to it, starts the small {@link ShellServer} process as
- * the shell user, and {@link CallRecorder} records through it. Like Shizuku, it has to be started again after a
- * reboot, and wireless debugging has to be on (with Wi-Fi connected) while that happens.
+ * six-digit code it shows; after that this class connects to its own TLS Wireless Debugging endpoint, starts the small
+ * {@link ShellServer} process as the shell user, and {@link CallRecorder} records through it. Like Shizuku, it has to
+ * be started again after a reboot, and wireless debugging has to be on (with Wi-Fi connected) while that happens.
  *
- * <p>Uses only the loopback address of this phone. Needs INTERNET, ACCESS_WIFI_STATE and CHANGE_WIFI_MULTICAST_STATE
- * (for finding the pairing dialog), all declared by the host app.
+ * <p>Uses only the loopback address for pairing and TLS-only mDNS discovery for the paired connection. It deliberately
+ * never connects to the legacy, unauthenticated ADB-over-TCP service. Needs INTERNET, ACCESS_WIFI_STATE and
+ * CHANGE_WIFI_MULTICAST_STATE (for finding the pairing dialog), all declared by the host app.
  */
 public final class BuiltinAccess {
 
@@ -110,11 +111,13 @@ public final class BuiltinAccess {
             }
         }, "callrec-recovery").start();
     }
+
     /** Renew the host-process lease while the app is actively capturing a call. */
     public static void heartbeat(Context context) {
         ControlChannel channel = channel(context.getApplicationContext());
         if (channel != null) channel.beatOwner(System.currentTimeMillis());
     }
+
     /** Clear the lease after a clean stop; abrupt process death leaves it to expire. */
     public static void clearHeartbeat(Context context) {
         ControlChannel channel = channel(context.getApplicationContext());
@@ -163,7 +166,10 @@ public final class BuiltinAccess {
 
     // ---- starting and stopping -----------------------------------------------------------------------------------
 
-    /** Connects to wireless debugging and starts the recorder process. Safe to call when it is already running. */
+    /**
+     * Connects only to the phone's TLS Wireless Debugging endpoint and starts the recorder process.
+     * Safe to call when it is already running.
+     */
     public static void start(Context context, Listener listener) {
         final Context app = context.getApplicationContext();
         new Thread(() -> {
@@ -178,9 +184,9 @@ public final class BuiltinAccess {
                     return;
                 }
                 manager = AdbManager.get(app);
-                listener.onStatus("Connecting to wireless debugging…");
-                if (!manager.isConnected() && !manager.autoConnect(app, 12_000)) {
-                    listener.onDone(false, "Could not reach wireless debugging. Turn it on in Developer options, with Wi-Fi connected, then try again.");
+                listener.onStatus("Connecting to this phone's TLS Wireless Debugging endpoint…");
+                if (!manager.isConnected() && !manager.connectTls(app, 12_000)) {
+                    listener.onDone(false, "Could not reach this phone's TLS Wireless Debugging endpoint. Turn Wireless debugging on, with Wi-Fi connected, then try again.");
                     return;
                 }
                 listener.onStatus("Starting the recorder…");
@@ -192,7 +198,7 @@ public final class BuiltinAccess {
                 if (running(app)) {
                     listener.onDone(true, "Recording access is on.");
                 } else {
-                    listener.onDone(false, "The recorder did not start. Turn wireless debugging off and on, then try again.");
+                    listener.onDone(false, "The recorder did not start. Turn Wireless debugging off and on, then try again.");
                 }
             } catch (AdbPairingRequiredException e) {
                 clearPaired(app);
