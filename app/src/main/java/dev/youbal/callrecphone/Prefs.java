@@ -3,12 +3,12 @@ package dev.youbal.callrecphone;
 import android.content.Context;
 import android.content.SharedPreferences;
 
-/** The few settings the app has. Recording is on by default; Shizuku decides whether it can actually happen. */
+/** Local settings. Call recording is opt-in; Shizuku decides whether privileged capture is available. */
 final class Prefs {
     private final SharedPreferences prefs;
     Prefs(Context context) { prefs = context.getSharedPreferences("settings", Context.MODE_PRIVATE); }
 
-    boolean recording() { return prefs.getBoolean("recording", true); }
+    boolean recording() { return prefs.getBoolean("recording", false); }
     void recording(boolean on) { prefs.edit().putBoolean("recording", on).apply(); }
 
     /** AUTO (Shizuku when ready, else the microphone), SHIZUKU or MIC. */
