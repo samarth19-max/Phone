@@ -41,6 +41,8 @@ final class ControlChannel {
     private static final Object REQUEST_LOCK = new Object();
     private static final int MAX_PROTOCOL_BYTES = 16 * 1024;
     private static final int MAX_ARGUMENT_LENGTH = 4096;
+    private static final long MAX_COMMAND_AGE_MS = 10_000;
+    private static final long MAX_FUTURE_SKEW_MS = 60_000;
 
     private final File dir;
     private final String token;
@@ -58,7 +60,9 @@ final class ControlChannel {
             dir.mkdirs();
             String id = UUID.randomUUID().toString().replace("-", "");
             List<String> lines = new ArrayList<>();
-            lines.add(id); lines.add(verb);
+            lines.add(id);
+            lines.add(Long.toString(System.currentTimeMillis()));
+            lines.add(verb);
             for (String a : args) lines.add(clean(a));
             lines.add(mac(token, lines));
             File res = new File(dir, RES);
@@ -107,11 +111,19 @@ final class ControlChannel {
         List<String> lines = read(file);
         if (lines == null) return null;
         file.delete();
-        if (lines.size() < 3
+        if (lines.size() < 4
                 || !authentic(token, lines.subList(0, lines.size() - 1), lines.get(lines.size() - 1))) return null;
         String id = lines.get(0);
-        String verb = lines.get(1);
-        List<String> args = new ArrayList<>(lines.subList(2, lines.size() - 1));
+        long issuedAt;
+        try {
+            issuedAt = Long.parseLong(lines.get(1));
+        } catch (NumberFormatException malformedTimestamp) {
+            return null;
+        }
+        long now = System.currentTimeMillis();
+        if (now - issuedAt > MAX_COMMAND_AGE_MS || issuedAt > now + MAX_FUTURE_SKEW_MS) return null;
+        String verb = lines.get(2);
+        List<String> args = new ArrayList<>(lines.subList(3, lines.size() - 1));
         if (!id.matches("[a-f0-9]{32}") || !validCommand(verb, args) || consumedCommandIds.contains(id)) return null;
         consumedCommandIds.add(id);
         if (consumedCommandIds.size() > 128) {
