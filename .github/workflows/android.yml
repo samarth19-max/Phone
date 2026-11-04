@@ -40,8 +40,11 @@ jobs:
           grep -Fq 'CallActionReceiver.STOP_RECORDING' "$service"
           grep -Fq 'if (recording || recordingCall != null)' "$service"
           grep -Fq 'mode == CallRecorder.Mode.MIC' "$service"
-          grep -Fq 'mode = CallRecorder.Mode.BUILTIN' "$service"
+          grep -Fq ': CallRecorder.Mode.BUILTIN' "$service"
           grep -Fq 'String[] modes = new String[]' "$settings" || grep -Fq 'modes = new String[]{"AUTO", "BUILTIN", "SHIZUKU"}' "$settings"
+          grep -Fq 'return recording || recordingCall != null;' "$service"
+          grep -Fq 'Keep forever' "$settings"
+          grep -Fq 'prefs.getInt("keep_days", 30)' app/src/main/java/dev/youbal/callrecphone/Prefs.java
       - name: Verify patched cryptography dependencies
         shell: bash
         run: |
