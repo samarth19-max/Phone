@@ -120,8 +120,6 @@ final class ControlChannel {
 
     private static String clean(String value) { return value == null ? "" : value.replace('\r', ' ').replace('\n', ' '); }
 
-    private static String clean(String value) { return value == null ? "" : value.replace('\\r', ' ').replace('\\n', ' '); }
-
     /** Validate on both sides of the shared-file boundary. */
     private static void validateRequest(String verb, String... args) throws IOException {
         List<String> values = new ArrayList<>();
