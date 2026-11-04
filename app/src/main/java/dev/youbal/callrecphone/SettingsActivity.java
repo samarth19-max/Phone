@@ -24,14 +24,25 @@ import java.util.Locale;
 
 /** Setup (five steps with ticks), recording options, how the app works, and problem reports. */
 public final class SettingsActivity extends Activity {
-    private static final int REQ_PERMISSIONS = 19, REQ_ROLE = 12, REQ_SHIZUKU = 71;
+    private static final int REQ_PERMISSIONS = 19, REQ_ROLE = 12, REQ_SHIZUKU = 71, REQ_PAIR_NOTIFICATIONS = 72;
     private PhoneApp app;
     private LinearLayout content;
 
     @Override protected void onCreate(Bundle state) { super.onCreate(state); Ui.init(this); app = PhoneApp.get(this); }
     @Override protected void onResume() { super.onResume(); build(); }
     @Override protected void onActivityResult(int request, int result, Intent data) { super.onActivityResult(request, result, data); build(); }
-    @Override public void onRequestPermissionsResult(int request, String[] permissions, int[] grants) { super.onRequestPermissionsResult(request, permissions, grants); app.reloadNames(null); build(); }
+    @Override public void onRequestPermissionsResult(int request, String[] permissions, int[] grants) {
+        super.onRequestPermissionsResult(request, permissions, grants);
+        app.reloadNames(null);
+        build();
+        if (request == REQ_PAIR_NOTIFICATIONS) {
+            if (grants.length > 0 && grants[0] == PackageManager.PERMISSION_GRANTED) {
+                launchPairingSettings();
+            } else {
+                Toast.makeText(this, "Notifications are required to enter the Wireless debugging pairing code.", Toast.LENGTH_LONG).show();
+            }
+        }
+    }
 
     private int dp(float n) { return Ui.dp(this, n); }
     private LinearLayout.LayoutParams lp(int w, int h, float weight) { return new LinearLayout.LayoutParams(w, h, weight); }
@@ -119,10 +130,23 @@ public final class SettingsActivity extends Activity {
             + "3. Pull down the notification from this app and type the six-digit code.\n\n"
             + "You only do this once. Allow notifications first if you have not.")
             .setPositiveButton("Continue", (d, n) -> {
-                startForegroundService(new Intent(this, PairingService.class));
-                startActivity(new Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS));
+                if (Build.VERSION.SDK_INT >= 33 && !has(Manifest.permission.POST_NOTIFICATIONS)) {
+                    requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, REQ_PAIR_NOTIFICATIONS);
+                } else {
+                    launchPairingSettings();
+                }
             }).setNegativeButton("Cancel", null).show();
     }
+
+    private void launchPairingSettings() {
+        if (Build.VERSION.SDK_INT >= 33 && !has(Manifest.permission.POST_NOTIFICATIONS)) {
+            Toast.makeText(this, "Allow notifications before pairing.", Toast.LENGTH_LONG).show();
+            return;
+        }
+        startForegroundService(new Intent(this, PairingService.class));
+        startActivity(new Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS));
+    }
+
     private void startAccess() {
         Toast.makeText(this, "Starting\u2026", Toast.LENGTH_SHORT).show();
         BuiltinAccess.start(this, new BuiltinAccess.Listener() {
