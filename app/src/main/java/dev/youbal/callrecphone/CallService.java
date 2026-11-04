@@ -139,8 +139,7 @@ public final class CallService extends InCallService implements CallRecorder.Lis
                 && (call.getChildren() == null || call.getChildren().isEmpty())
                 && recordingCall == null
                 && !recording
-                && !captureRecoveryPending
-                && !captureRecoveryFailed
+                && !(recorderMode == CallRecorder.Mode.BUILTIN && (captureRecoveryPending || captureRecoveryFailed))
                 && !consentedCalls.contains(call);
     }
 
@@ -182,7 +181,7 @@ public final class CallService extends InCallService implements CallRecorder.Lis
         if (recorder == null) return;
         PhoneApp app = PhoneApp.get(this);
         refreshAutomaticRecorderMode(app);
-        if (captureRecoveryPending || captureRecoveryFailed) return;
+        if (recorderMode == CallRecorder.Mode.BUILTIN && (captureRecoveryPending || captureRecoveryFailed)) return;
 
         // Local-network revocation must stop an existing shell process even if AUTO has since selected Shizuku.
         boolean hasLocalNetworkPermission = Build.VERSION.SDK_INT < 37
