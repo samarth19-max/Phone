@@ -24,9 +24,10 @@ import java.util.Locale;
 
 /** Setup (five steps with ticks), recording options, how the app works, and problem reports. */
 public final class SettingsActivity extends Activity {
-    private static final int REQ_PERMISSIONS = 19, REQ_ROLE = 12, REQ_SHIZUKU = 71, REQ_PAIR_NOTIFICATIONS = 72;
+    private static final int REQ_PERMISSIONS = 19, REQ_ROLE = 12, REQ_SHIZUKU = 71, REQ_PAIR_NOTIFICATIONS = 72, REQ_LOCAL_NETWORK = 73;
     private PhoneApp app;
     private LinearLayout content;
+    private Runnable pendingLocalNetworkAction;
 
     @Override protected void onCreate(Bundle state) { super.onCreate(state); Ui.init(this); app = PhoneApp.get(this); }
     @Override protected void onResume() { super.onResume(); build(); }
@@ -34,6 +35,17 @@ public final class SettingsActivity extends Activity {
     @Override public void onRequestPermissionsResult(int request, String[] permissions, int[] grants) {
         super.onRequestPermissionsResult(request, permissions, grants);
         app.reloadNames(null);
+        if (request == REQ_LOCAL_NETWORK) {
+            Runnable action = pendingLocalNetworkAction;
+            pendingLocalNetworkAction = null;
+            build();
+            if (has("android.permission.ACCESS_LOCAL_NETWORK")) {
+                if (action != null) action.run();
+            } else {
+                Toast.makeText(this, "Local network access is required for built-in Wireless Debugging recording. You can still use Shizuku or microphone mode.", Toast.LENGTH_LONG).show();
+            }
+            return;
+        }
         build();
         if (request == REQ_PAIR_NOTIFICATIONS) {
             if (grants.length > 0 && grants[0] == PackageManager.PERMISSION_GRANTED) {
@@ -48,7 +60,17 @@ public final class SettingsActivity extends Activity {
     private LinearLayout.LayoutParams lp(int w, int h, float weight) { return new LinearLayout.LayoutParams(w, h, weight); }
     private LinearLayout.LayoutParams lp(int w, int h) { return new LinearLayout.LayoutParams(w, h); }
     private boolean has(String permission) { return checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED; }
-    private boolean isDefaultPhone() { return DefaultPhone.held(this); }
+
+    /** Request LAN access only when the user chooses the built-in ADB recorder. */
+    private void withLocalNetworkPermission(Runnable action) {
+        if (Build.VERSION.SDK_INT < 37 || has("android.permission.ACCESS_LOCAL_NETWORK")) {
+            action.run();
+            return;
+        }
+        pendingLocalNetworkAction = action;
+        requestPermissions(new String[]{"android.permission.ACCESS_LOCAL_NETWORK"}, REQ_LOCAL_NETWORK);
+    }
+     private boolean isDefaultPhone() { return DefaultPhone.held(this); }
     private String[] permissions() {
         return Build.VERSION.SDK_INT >= 33
             ? new String[]{Manifest.permission.READ_CONTACTS, Manifest.permission.READ_CALL_LOG, Manifest.permission.CALL_PHONE, Manifest.permission.RECORD_AUDIO, Manifest.permission.POST_NOTIFICATIONS}
@@ -126,7 +148,7 @@ public final class SettingsActivity extends Activity {
     private void pairDialog() {
         new AlertDialog.Builder(this).setTitle("Pair with wireless debugging").setMessage(
             "1. Turn on Developer options, then Wireless debugging (Wi-Fi must be on).\n"
-            + "2. Tap \u201CPair device with pairing code\u201D and leave that box open.\n"
+            + "2. Tap “Pair device with pairing code” and leave that box open.\n"
             + "3. Pull down the notification from this app and type the six-digit code.\n\n"
             + "You only do this once. Allow notifications first if you have not.")
             .setPositiveButton("Continue", (d, n) -> {
@@ -143,12 +165,20 @@ public final class SettingsActivity extends Activity {
             Toast.makeText(this, "Allow notifications before pairing.", Toast.LENGTH_LONG).show();
             return;
         }
+        withLocalNetworkPermission(this::launchPairingSettingsWithPermission);
+    }
+
+    private void launchPairingSettingsWithPermission() {
         startForegroundService(new Intent(this, PairingService.class));
         startActivity(new Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS));
     }
 
     private void startAccess() {
-        Toast.makeText(this, "Starting\u2026", Toast.LENGTH_SHORT).show();
+        withLocalNetworkPermission(this::startAccessWithPermission);
+    }
+
+    private void startAccessWithPermission() {
+        Toast.makeText(this, "Starting…", Toast.LENGTH_SHORT).show();
         BuiltinAccess.start(this, new BuiltinAccess.Listener() {
             @Override public void onStatus(String message) { app.main.post(() -> Toast.makeText(SettingsActivity.this, message, Toast.LENGTH_SHORT).show()); }
             @Override public void onDone(boolean ok, String message) { app.prefs.lastStatus(message); app.main.post(() -> { Toast.makeText(SettingsActivity.this, message, Toast.LENGTH_LONG).show(); build(); }); }
