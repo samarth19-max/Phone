@@ -16,6 +16,7 @@ import android.telecom.TelecomManager;
 import android.view.Gravity;
 import android.view.View;
 import android.view.animation.LinearInterpolator;
+import android.widget.CheckBox;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -32,6 +33,8 @@ public final class CallActivity extends Activity {
     private boolean accountDialog = false, keypadOpen = false;
     private StringBuilder dtmf = new StringBuilder();
     private TextView status, timer, name, number, recordingPill, dtmfText;
+    private LinearLayout recordingConsentBox;
+    private Call consentPromptCall;
     private CallCard card;
     private TextView avatar;
     private View ring, controls, keypad, ringingButtons, endRow, mute, speaker, hold, stop;
@@ -41,7 +44,8 @@ public final class CallActivity extends Activity {
     static volatile boolean visible;
     private boolean safeMode;
     private TextView safeText, silence;
-    private android.widget.Button safeAnswer, safeDecline, safeEnd;
+    private android.widget.Button safeAnswer, safeDecline, safeEnd, safeRecord, safeStop;
+    private TextView safeRecordingNotice;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state); Ui.init(this);
@@ -87,6 +91,7 @@ public final class CallActivity extends Activity {
         number = label("", 16, 0xffbcd0ff); root.addView(number);
         card = new CallCard(this); card.setVisibility(View.GONE);
         recordingPill = label("● Recording", 12, 0xffff8a8a); recordingPill.setPadding(dp(12), dp(4), dp(12), dp(4)); recordingPill.setBackground(Ui.shape(0x33ff5a5a, 14, this)); recordingPill.setVisibility(View.GONE); root.addView(recordingPill, lp(-2, -2, 0, 10, 0, 0));
+        recordingConsentBox = Ui.card(this); recordingConsentBox.setVisibility(View.GONE); root.addView(recordingConsentBox, lp(-1, -2, 0, 8, 0, 0));
         othersBox = Ui.column(this); root.addView(othersBox, lp(-1, -2, 0, 10, 0, 0));
         android.widget.ScrollView details = new android.widget.ScrollView(this); details.setVerticalScrollBarEnabled(false); details.addView(card); root.addView(details, lp(-1, 0, 0, 12, 0, 8)); ((LinearLayout.LayoutParams) details.getLayoutParams()).weight = 1;
 
@@ -178,6 +183,9 @@ public final class CallActivity extends Activity {
         safeAnswer = new android.widget.Button(this); safeAnswer.setText("Answer"); safeAnswer.setOnClickListener(v -> { if (shown != null) shown.answer(shown.getDetails().getVideoState()); }); box.addView(safeAnswer);
         safeDecline = new android.widget.Button(this); safeDecline.setText("Decline"); safeDecline.setOnClickListener(v -> { if (shown != null) shown.reject(false, null); }); box.addView(safeDecline);
         safeEnd = new android.widget.Button(this); safeEnd.setText("End call"); safeEnd.setOnClickListener(v -> { if (shown != null) shown.disconnect(); }); box.addView(safeEnd);
+        safeRecordingNotice = new TextView(this); safeRecordingNotice.setTextColor(Color.WHITE); safeRecordingNotice.setTextSize(14); safeRecordingNotice.setGravity(Gravity.CENTER); box.addView(safeRecordingNotice);
+        safeRecord = new android.widget.Button(this); safeRecord.setText("Confirm everyone's consent and record"); safeRecord.setOnClickListener(v -> showRecordingConsent(shown)); box.addView(safeRecord);
+        safeStop = new android.widget.Button(this); safeStop.setText("Stop recording"); safeStop.setOnClickListener(v -> { if (CallService.instance != null) CallService.instance.stopRecording(); bind(); }); box.addView(safeStop);
         setContentView(box);
     }
     private void bindSafe() {
@@ -186,6 +194,13 @@ public final class CallActivity extends Activity {
         Call call = primary(service.currentCalls()); shown = call; boolean ringing = call.getState() == Call.STATE_RINGING;
         safeText.setText(PhoneNumbers.display(phoneOf(call)) + "\n" + stateText(call));
         safeAnswer.setVisibility(ringing ? View.VISIBLE : View.GONE); safeDecline.setVisibility(ringing ? View.VISIBLE : View.GONE); safeEnd.setVisibility(ringing ? View.GONE : View.VISIBLE);
+        boolean active = call.getState() == Call.STATE_ACTIVE;
+        boolean recording = service.recordingBusy();
+        boolean needsConsent = active && service.needsRecordingConsent(call);
+        safeRecordingNotice.setText(recording ? "Recording is active. Everyone on the call must know." : needsConsent ? "Recording has not started. Tell everyone and get their agreement first." : "");
+        safeRecordingNotice.setVisibility(recording || needsConsent ? View.VISIBLE : View.GONE);
+        safeRecord.setVisibility(needsConsent ? View.VISIBLE : View.GONE);
+        safeStop.setVisibility(recording ? View.VISIBLE : View.GONE);
     }
     private void bindFull() {
         CallService service = CallService.instance;
@@ -214,7 +229,10 @@ public final class CallActivity extends Activity {
         setActive(speaker, "Speaker", audio != null && audio.getRoute() == CallAudioState.ROUTE_SPEAKER);
         setActive(hold, "Pause", held); hold.setAlpha((call.getDetails().getCallCapabilities() & Call.Details.CAPABILITY_HOLD) != 0 ? 1f : .35f);
 
-        boolean recording = service.recordingBusy(); recordingPill.setVisibility(recording ? View.VISIBLE : View.GONE); stop.setVisibility(recording && !ringing ? View.VISIBLE : View.GONE);
+        boolean recording = service.recordingBusy();
+        recordingPill.setVisibility(recording ? View.VISIBLE : View.GONE);
+        stop.setVisibility(recording && !ringing ? View.VISIBLE : View.GONE);
+        renderRecordingConsent(service, call);
 
         othersBox.removeAllViews();
         for (Call other : calls) {
@@ -227,6 +245,66 @@ public final class CallActivity extends Activity {
         }
         if (state == Call.STATE_SELECT_PHONE_ACCOUNT && !accountDialog) chooseSim(call);
     }
+    /** Shows a persistent per-call consent action; the recorder never starts from the global setting alone. */
+    private void renderRecordingConsent(CallService service, Call call) {
+        if (recordingConsentBox == null) return;
+        if (!service.needsRecordingConsent(call)) {
+            recordingConsentBox.setVisibility(View.GONE);
+            consentPromptCall = null;
+            return;
+        }
+        recordingConsentBox.setVisibility(View.VISIBLE);
+        if (consentPromptCall != call) {
+            consentPromptCall = call;
+            recordingConsentBox.removeAllViews();
+            recordingConsentBox.addView(Ui.title(this, "Recording has not started", 16));
+            recordingConsentBox.addView(Ui.text(this,
+                    "Tell every person on this call that you intend to record. Wait for each person to agree before starting. This app cannot notify the other caller or verify their consent.",
+                    13, Ui.MUTED));
+            recordingConsentBox.addView(Ui.button(this, "Confirm consent before recording", true,
+                    v -> showRecordingConsent(call)));
+        }
+    }
+
+    /**
+     * Requires an explicit, per-call attestation. This is not an announcement to the remote party;
+     * the user must tell all participants and obtain their agreement before pressing Start.
+     */
+    private void showRecordingConsent(Call call) {
+        CallService service = CallService.instance;
+        if (service == null || !service.needsRecordingConsent(call)) return;
+
+        CheckBox confirmation = new CheckBox(this);
+        confirmation.setText("I have told everyone on this call, and every participant has explicitly agreed to recording.");
+        confirmation.setTextColor(0xffe8eefc);
+        confirmation.setPadding(0, dp(8), 0, dp(8));
+
+        LinearLayout content = Ui.column(this);
+        content.setPadding(dp(8), dp(4), dp(8), dp(4));
+        content.addView(Ui.text(this,
+                "Recording is not started automatically. Speak to everyone first and wait for a clear yes from each participant. If anyone declines or asks you to stop, do not record or stop immediately. This app cannot send a reliable announcement into the phone-call audio or verify consent for you.",
+                14, Ui.INK));
+        content.addView(confirmation);
+
+        android.app.AlertDialog dialog = new android.app.AlertDialog.Builder(this)
+                .setTitle("Consent required for this call")
+                .setView(content)
+                .setNegativeButton("Not now", null)
+                .setPositiveButton("Start recording", null)
+                .create();
+        dialog.setOnShowListener(ignored -> {
+            android.widget.Button start = dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE);
+            start.setEnabled(false);
+            confirmation.setOnCheckedChangeListener((button, checked) -> start.setEnabled(checked));
+            start.setOnClickListener(v -> {
+                dialog.dismiss();
+                CallService current = CallService.instance;
+                if (current != null) current.confirmRecordingConsent(call);
+            });
+        });
+        dialog.show();
+    }
+
     private void chooseSim(Call call) {
         Bundle extras = call.getDetails().getExtras(); if (extras == null) return;
         List<PhoneAccountHandle> accounts = extras.getParcelableArrayList(Call.AVAILABLE_PHONE_ACCOUNTS); if (accounts == null || accounts.isEmpty()) return;
