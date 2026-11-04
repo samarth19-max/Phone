@@ -30,3 +30,13 @@ dependencies {
     implementation 'androidx.core:core:1.13.1'
     testImplementation 'junit:junit:4.13.2'
 }
+
+configurations.configureEach {
+    resolutionStrategy.eachDependency {
+        if (requested.group == 'org.bouncycastle' && requested.name == 'bcprov-jdk15to18') {
+            // callrec 0.3.0 currently requests 1.81; pin the patched release for CVE-2026-8763.
+            useVersion '1.86'
+            because 'Bouncy Castle versions before 1.85 are affected by CVE-2026-8763'
+        }
+    }
+}
