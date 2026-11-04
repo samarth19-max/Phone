@@ -266,7 +266,7 @@ public final class BuiltinAccess {
         File file = new File(context.getFilesDir(), TOKEN_FILE);
         if (file.isFile()) {
             String saved = new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8).trim();
-            if (saved.length() >= 32) {
+            if (saved.matches("[a-f0-9]{48}")) {
                 return saved;
             }
         }
