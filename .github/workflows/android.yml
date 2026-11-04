@@ -23,6 +23,25 @@ jobs:
           grep -Fq 'Build.VERSION.SDK_INT < 37' app/src/main/java/dev/youbal/callrecphone/SettingsActivity.java
           grep -Fq 'requestPermissions(new String[]{"android.permission.ACCESS_LOCAL_NETWORK"}, REQ_LOCAL_NETWORK)' app/src/main/java/dev/youbal/callrecphone/SettingsActivity.java
           ! grep -Fq 'BuiltinAccess.start' app/src/main/java/dev/youbal/callrecphone/MainActivity.java
+      - name: Verify per-call consent and recording safeguards
+        shell: bash
+        run: |
+          set -euo pipefail
+          service="app/src/main/java/dev/youbal/callrecphone/CallService.java"
+          screen="app/src/main/java/dev/youbal/callrecphone/CallActivity.java"
+          settings="app/src/main/java/dev/youbal/callrecphone/SettingsActivity.java"
+          grep -Fq 'needsRecordingConsent(Call call)' "$service"
+          grep -Fq 'confirmRecordingConsent(Call call)' "$service"
+          grep -Fq 'if (!consentedCalls.contains(call) || !attempted.add(call)) return;' "$service"
+          grep -Fq 'hasConferenceChildren(call)' "$service"
+          grep -Fq 'call.getChildren().isEmpty()' "$service"
+          grep -Fq 'I have told everyone on this call' "$screen"
+          grep -Fq 'This app cannot send a reliable announcement into the phone-call audio' "$screen"
+          grep -Fq 'CallActionReceiver.STOP_RECORDING' "$service"
+          grep -Fq 'if (recording || recordingCall != null)' "$service"
+          grep -Fq 'mode == CallRecorder.Mode.MIC' "$service"
+          grep -Fq 'mode = CallRecorder.Mode.BUILTIN' "$service"
+          grep -Fq 'String[] modes = new String[]' "$settings" || grep -Fq 'modes = new String[]{"AUTO", "BUILTIN", "SHIZUKU"}' "$settings"
       - name: Verify patched cryptography dependencies
         shell: bash
         run: |
