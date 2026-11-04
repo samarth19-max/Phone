@@ -159,23 +159,27 @@ public final class CallService extends InCallService implements CallRecorder.Lis
         PhoneApp app = PhoneApp.get(this);
         refreshAutomaticRecorderMode(app);
 
-        // A previously paired shell process must not keep recording after API 37 LAN permission is revoked.
-        if (Build.VERSION.SDK_INT >= 37 && recorderMode == CallRecorder.Mode.BUILTIN
-                && checkSelfPermission("android.permission.ACCESS_LOCAL_NETWORK") != PackageManager.PERMISSION_GRANTED) {
-            if (recordingCall != null) {
-                recorder.onCallEnded();
-                recordingCall = null;
-            }
-            consentedCalls.clear();
-            attempted.clear();
+        // Local-network revocation must stop an existing shell process even if AUTO has since selected Shizuku.
+        boolean hasLocalNetworkPermission = Build.VERSION.SDK_INT < 37
+                || checkSelfPermission("android.permission.ACCESS_LOCAL_NETWORK") == PackageManager.PERMISSION_GRANTED;
+        if (Build.VERSION.SDK_INT >= 37 && !hasLocalNetworkPermission) {
             if (!localAccessRevoked) {
                 localAccessRevoked = true;
-                BuiltinAccess.stop(this);
-                app.prefs.lastStatus("Local network access was revoked. Built-in recording was stopped; grant the permission again to use it.");
+                if (BuiltinAccess.state(this) == BuiltinAccess.State.RUNNING) BuiltinAccess.stop(this);
+                app.prefs.lastStatus("Local network access was revoked. Built-in Wireless Debugging access is being stopped.");
             }
-            return;
+            if (recorderMode == CallRecorder.Mode.BUILTIN) {
+                if (recordingCall != null) {
+                    recorder.onCallEnded();
+                    recordingCall = null;
+                }
+                consentedCalls.clear();
+                attempted.clear();
+                return;
+            }
+        } else {
+            localAccessRevoked = false;
         }
-        localAccessRevoked = false;
 
         if (calls.size() != 1) {
             if (recordingCall != null) {
@@ -287,7 +291,7 @@ public final class CallService extends InCallService implements CallRecorder.Lis
             String number = numberOf(focus); String saved = PhoneApp.get(this).phoneName(number);
             String title = !saved.isEmpty() ? saved : number.isEmpty() ? "Private number" : PhoneNumbers.display(number);
             Notification.Builder builder = new Notification.Builder(this, ringing && !CallActivity.visible ? "calls" : "calls_active").setOnlyAlertOnce(true)
-                .setSmallIcon(R.drawable.ic_phone).setContentTitle(title).setContentText(ringing ? "Incoming call" : recording ? "Recording · tap for controls" : "Call in progress · tap for controls")
+                .setSmallIcon(R.drawable.ic_phone).setContentTitle(title).setContentText(ringing ? "Incoming call" : (recording || recordingCall != null) ? "Recording · tap for controls" : "Call in progress · tap for controls")
                 .setCategory(Notification.CATEGORY_CALL).setOngoing(true).setContentIntent(open).setVisibility(Notification.VISIBILITY_PRIVATE);
             if (ringing) {
                 builder.setFullScreenIntent(open, true);
