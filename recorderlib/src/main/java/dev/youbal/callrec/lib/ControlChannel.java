@@ -120,6 +120,27 @@ final class ControlChannel {
 
     private static String clean(String value) { return value == null ? "" : value.replace('\r', ' ').replace('\n', ' '); }
 
+    private static String clean(String value) { return value == null ? "" : value.replace('\\r', ' ').replace('\\n', ' '); }
+
+    /** Validate on both sides of the shared-file boundary. */
+    private static void validateRequest(String verb, String... args) throws IOException {
+        List<String> values = new ArrayList<>();
+        for (String arg : args) {
+            String value = clean(arg);
+            if (value.length() > MAX_ARGUMENT_LENGTH) throw new IOException("control argument is too long");
+            values.add(value);
+        }
+        if (!validCommand(verb, values)) throw new IOException("unsupported control command or argument count");
+    }
+
+    private static boolean validCommand(String verb, List<String> args) {
+        if (args.size() > 3) return false;
+        for (String arg : args) if (arg == null || arg.length() > MAX_ARGUMENT_LENGTH) return false;
+        if ("START".equals(verb)) return args.size() == 3;
+        return ("STOP".equals(verb) || "RESET".equals(verb) || "QUIT".equals(verb) || "PING".equals(verb))
+                && args.isEmpty();
+    }
+
     /** Write beside the destination and rename into place. */
     private static void write(File target, List<String> lines) throws IOException {
         File parent = target.getParentFile();
