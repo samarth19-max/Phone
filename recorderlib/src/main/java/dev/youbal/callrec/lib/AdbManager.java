@@ -12,7 +12,7 @@ import java.security.Security;
 import java.security.cert.Certificate;
 import java.util.concurrent.TimeUnit;
 
-/** This phone's own connection to its wireless debugging, using the identity from {@link AdbKeys}. */
+/** This phone's own TLS Wireless Debugging connection, using the identity from {@link AdbKeys}. */
 final class AdbManager extends AbsAdbConnectionManager {
 
     private static AdbManager instance;
@@ -43,6 +43,8 @@ final class AdbManager extends AbsAdbConnectionManager {
     private AdbManager(Context context) throws Exception {
         setApi(Build.VERSION.SDK_INT);
         setTimeout(10, TimeUnit.SECONDS);
+        // A rejected/stale key must be an authentication error, never a silent false connection result.
+        setThrowOnUnauthorised(true);
         AdbKeys keys = AdbKeys.load(context);
         privateKey = keys.privateKey;
         certificate = keys.certificate;
