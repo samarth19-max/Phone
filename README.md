@@ -23,7 +23,7 @@ The same steps are in the app under **Settings → Setup**, with a tick for each
 
 1. **Allow restricted settings, then the permissions.** Phone Settings → Apps → Callrec Phone → ⋮ (top right) → **Allow restricted settings** (needed for apps installed from an APK). Then tap **Allow permissions** in the app (contacts, call log, phone, microphone, notifications).
 2. **Set Callrec Phone as your default phone app.**
-3. **Start recording access** (needed for two-sided capture where the phone supports it; the microphone fallback is limited and is not reliable for call audio on Android 17). In the app tap **Pair and start**, then:
+3. **Start recording access** (needed for two-sided capture where the phone supports it; Android 17 uses Shizuku or built-in Wireless Debugging only, not the ordinary microphone). In the app tap **Pair and start**, then:
    1. Turn on **Developer options** (tap *Build number* seven times in *About phone*) and, inside it, **Wireless debugging**. Wi-Fi must be on.
    2. Tap **Pair device with pairing code** and leave that box open.
    3. Pull down the notification from Callrec Phone and type the six-digit code into it.
@@ -37,7 +37,7 @@ Android only lets *system* apps capture the other person's voice during a call. 
 
 Callrec Phone offers two privileged recording engines: Shizuku and built-in Wireless Debugging. The built-in engine pairs with *this phone's own* Wireless Debugging service, then starts a small recorder process as Android's shell user. The user must explicitly start recording for each call after confirming that every participant has been informed and agreed. The app never treats the global Recording switch as consent for a particular call.
 
-The built-in shell recorder does not survive a restart (tap **Start recording access** again), and Wireless Debugging must be on while it starts. Device makers differ in whether call audio can be captured. The AUTO source prefers Shizuku, then built-in Wireless Debugging, then the microphone. On Android 17, ordinary-app microphone capture is restricted during an active voice call; microphone mode must not be assumed to capture either side.
+The built-in shell recorder does not survive a restart (tap **Start recording access** again), and Wireless Debugging must be on while it starts. Device makers differ in whether call audio can be captured. On Android 15 and 16, AUTO prefers Shizuku, then built-in Wireless Debugging, then the microphone. On Android 17, AUTO selects only Shizuku or built-in Wireless Debugging; the microphone-only mode is hidden because ordinary-app microphone capture is restricted during active voice calls.
 
 ## Privacy
 
@@ -67,7 +67,7 @@ The recording library comes from JitPack. To work on the library and the app tog
 
 The app's minimum Android version is API 26 (Android 8.0); it is built and targeted against API 37. The source includes edge-to-edge inset handling and predictive Back handling for the custom contacts-detail screen.
 
-The built-in recorder discovers Wireless Debugging using mDNS and connects to a local interface address discovered by mDNS and verified as belonging to this device. Because this app targets API 37, Android 17 blocks local-network communication until the user grants `ACCESS_LOCAL_NETWORK`. The app declares this permission and requests it only when the user starts or pairs the built-in Wireless Debugging recorder. If the user denies it, built-in ADB recording cannot be started; Shizuku remains an alternative. Microphone call recording can be limited by the device's concurrent call-audio policy. Android 15 and 16 do not prompt for this permission. Revoking local-network permission does not revoke an ADB pairing or terminate a shell recorder process that is already running; use Settings → Turn off or Forget pairing, or reboot, to stop it.
+The built-in recorder discovers Wireless Debugging using mDNS and connects to a local interface address discovered by mDNS and verified as belonging to this device. Because this app targets API 37, Android 17 blocks local-network communication until the user grants `ACCESS_LOCAL_NETWORK`. The app declares this permission and requests it only when the user starts or pairs the built-in Wireless Debugging recorder. If the user denies or later revokes it, the app blocks new built-in recordings and attempts to stop the persistent shell recorder when it next observes the revocation; Shizuku remains an alternative. Android 15 and 16 do not prompt for this permission. Revoking local-network permission does not revoke an ADB pairing or terminate a shell recorder process that is already running; use Settings → Turn off or Forget pairing, or reboot, to stop it.
 
 Android 15+ compatibility still needs device-side testing. Android 17 tightens concurrent audio capture during calls; the ordinary-app microphone fallback may receive silence depending on the handset's audio policy. The Shizuku and built-in recorders run through the shell identity, but their behavior still needs device testing. Call-audio capture also depends on the handset/OEM, and the hidden `AudioRecord.Builder.setContext` API used by the shell recorder is not a stable Android SDK contract. Passing a build does not prove that two-sided call recording works on every device.
 
