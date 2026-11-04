@@ -3,6 +3,7 @@ package dev.youbal.callrec.lib;
 import android.content.Context;
 import android.os.Build;
 
+import io.github.muntashirakon.adb.AdbAuthenticationFailedException;
 import io.github.muntashirakon.adb.AdbPairingRequiredException;
 import io.github.muntashirakon.adb.AdbStream;
 import io.github.muntashirakon.adb.android.AdbMdns;
@@ -200,6 +201,9 @@ public final class BuiltinAccess {
                 } else {
                     listener.onDone(false, "The recorder did not start. Turn Wireless debugging off and on, then try again.");
                 }
+            } catch (AdbAuthenticationFailedException e) {
+                clearPaired(app);
+                listener.onDone(false, "Wireless Debugging rejected the saved app identity. Pair again.");
             } catch (AdbPairingRequiredException e) {
                 clearPaired(app);
                 listener.onDone(false, "This phone no longer trusts the app. Pair again.");
