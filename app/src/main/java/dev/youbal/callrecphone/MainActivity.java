@@ -20,6 +20,8 @@ import android.text.TextWatcher;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.window.OnBackInvokedCallback;
+import android.window.OnBackInvokedDispatcher;
 import android.widget.BaseAdapter;
 import android.widget.EditText;
 import android.widget.HorizontalScrollView;
@@ -64,6 +66,8 @@ public final class MainActivity extends Activity {
     private MediaPlayer player;
     private String playing = "";
     private final Runnable recordingsChanged = this::refreshLists;
+    private final OnBackInvokedCallback detailBackCallback = () -> show("contacts");
+    private boolean detailBackCallbackRegistered;
 
     // ---- lifecycle ---------------------------------------------------------------------------------------------------
     @Override protected void onCreate(Bundle state) {
@@ -73,7 +77,33 @@ public final class MainActivity extends Activity {
     @Override protected void onNewIntent(Intent intent) { super.onNewIntent(intent); setIntent(intent); handleIntent(intent); show(page); }
     @Override protected void onResume() { super.onResume(); app.recordingListeners.add(recordingsChanged); loadAll(); }
     @Override protected void onPause() { app.recordingListeners.remove(recordingsChanged); stopPlayback(); super.onPause(); }
-    @Override public void onBackPressed() { if (page.equals("detail")) show("contacts"); else super.onBackPressed(); }
+    /** Android 16 targeting API 36 no longer dispatches onBackPressed(). Intercept only the in-app detail page;
+     * leave the root screens to the system so the normal predictive back-to-home animation remains available. */
+    private void updatePredictiveBackCallback() {
+        if (Build.VERSION.SDK_INT < 33) return;
+        OnBackInvokedDispatcher dispatcher = getOnBackInvokedDispatcher();
+        boolean needsCallback = page.equals("detail");
+        if (needsCallback && !detailBackCallbackRegistered) {
+            dispatcher.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT, detailBackCallback);
+            detailBackCallbackRegistered = true;
+        } else if (!needsCallback && detailBackCallbackRegistered) {
+            dispatcher.unregisterOnBackInvokedCallback(detailBackCallback);
+            detailBackCallbackRegistered = false;
+        }
+    }
+
+    @Override public void onBackPressed() {
+        if (Build.VERSION.SDK_INT < 33 && page.equals("detail")) show("contacts");
+        else if (Build.VERSION.SDK_INT < 33) super.onBackPressed();
+    }
+
+    @Override protected void onDestroy() {
+        if (Build.VERSION.SDK_INT >= 33 && detailBackCallbackRegistered) {
+            getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback(detailBackCallback);
+            detailBackCallbackRegistered = false;
+        }
+        super.onDestroy();
+    }
 
     private void handleIntent(Intent intent) {
         if (Intent.ACTION_DIAL.equals(intent.getAction())) { Uri data = intent.getData(); dialed = data == null ? "" : data.getSchemeSpecificPart(); page = "dialpad"; }
@@ -167,6 +197,7 @@ public final class MainActivity extends Activity {
             case "detail": if (selected != null) { detailPage(selected); break; }
             default: page = "recents"; recentsPage();
         }
+        updatePredictiveBackCallback();
     }
 
     private void listArea() {
