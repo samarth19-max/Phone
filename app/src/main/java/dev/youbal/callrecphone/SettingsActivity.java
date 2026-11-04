@@ -179,6 +179,6 @@ public final class SettingsActivity extends Activity {
         String version = ""; try { version = getPackageManager().getPackageInfo(getPackageName(), 0).versionName; } catch (PackageManager.NameNotFoundException ignored) { /* Shown without a version. */ }
         card.addView(Ui.text(this, "Callrec Phone " + version + ". Open source. No account, no ads, no tracking: your calls, contacts and recordings never leave the phone. The network permission is only used to talk to this phone\u2019s own wireless debugging.", 13, Ui.MUTED));
         card.addView(Ui.text(this, "Call recording by callrec. Uses this phone\u2019s own wireless debugging, or the Shizuku app if you prefer it.", 13, Ui.MUTED));
-        card.addView(Ui.button(this, "Source code", false, v -> startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/Youbal-oops/Phone")))));
+        card.addView(Ui.button(this, "Source code", false, v -> startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/samarth19-max/Phone")))));
     }
 }
