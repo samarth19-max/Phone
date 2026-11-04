@@ -6,7 +6,7 @@
 
 - The built-in ADB launcher quotes every dynamic shell argument using POSIX single-quote escaping. Regression tests cover spaces, empty strings, and embedded quotes with shell metacharacters.
 - The file-backed shell control channel accepts only `START` (exactly three arguments), `STOP`, `RESET`, `QUIT`, and `PING` (no arguments). It rejects malformed IDs, unexpected verbs, invalid argument counts, oversized protocol files, oversized arguments, unauthenticated/tampered messages, expired commands, and replayed request IDs.
-- Commands, responses, liveness, and owner leases use HMAC-SHA256; the shared files no longer contain the raw control token.
+- Commands, responses, liveness, and owner leases use domain-separated HMAC-SHA256; the shared files no longer contain the raw control token. Commands also carry a short issue-time window and unique IDs to limit replay.
 - Control messages are written to unique temporary files and moved into place atomically where the filesystem supports it.
 - The shell process validates its startup argument count and token format.
 - The privileged shell recorder checks that its output path resolves to the app's sibling `Recordings` directory. Canonical-path checks reject traversal and symlink escapes.
