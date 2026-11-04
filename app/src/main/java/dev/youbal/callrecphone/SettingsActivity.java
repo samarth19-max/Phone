@@ -208,11 +208,31 @@ public final class SettingsActivity extends Activity {
                     .show();
             }
         }));
-        String[] modes = {"AUTO", "BUILTIN", "SHIZUKU", "MIC"}, modeNames = {"Automatic: Shizuku, built-in access, then microphone", "Built-in access only: both sides where supported", "Shizuku app only: both sides where supported", "Microphone only: speakerphone; not reliable for call audio on Android 17"};
-        int current = 0; for (int i = 0; i < modes.length; i++) if (modes[i].equals(app.prefs.mode())) current = i;
-        card.addView(Ui.button(this, "Source: " + modeNames[current].split(":")[0], false, v -> Ui.sheet(this, "Recording source", modeNames, indexOf(modes, app.prefs.mode()), n -> { app.prefs.mode(modes[n]); build(); }).show()));
-        if (Build.VERSION.SDK_INT >= 37 && app.prefs.mode().equals("MIC"))
-            card.addView(Ui.text(this, "Android 17 restricts ordinary-app microphone capture during active voice calls. Microphone mode may not capture either side of the call. For call recording, use Shizuku or the built-in Wireless Debugging recorder.", 13, Ui.WARN));
+        String[] modes;
+        String[] modeNames;
+        if (Build.VERSION.SDK_INT >= 37) {
+            if ("MIC".equals(app.prefs.mode())) app.prefs.mode("AUTO");
+            modes = new String[]{"AUTO", "BUILTIN", "SHIZUKU"};
+            modeNames = new String[]{
+                "Automatic: Shizuku or built-in Wireless Debugging",
+                "Built-in Wireless Debugging only: both sides where supported",
+                "Shizuku only: both sides where supported"
+            };
+            card.addView(Ui.text(this, "Android 17 restricts ordinary-app microphone capture during active voice calls. Microphone-only recording is unavailable on this Android version; AUTO uses Shizuku or built-in Wireless Debugging instead.", 13, Ui.MUTED));
+        } else {
+            modes = new String[]{"AUTO", "BUILTIN", "SHIZUKU", "MIC"};
+            modeNames = new String[]{
+                "Automatic: Shizuku, built-in access, then microphone",
+                "Built-in access only: both sides where supported",
+                "Shizuku app only: both sides where supported",
+                "Microphone only: hears the far end on speakerphone"
+            };
+        }
+        int current = 0;
+        for (int i = 0; i < modes.length; i++) if (modes[i].equals(app.prefs.mode())) current = i;
+        card.addView(Ui.button(this, "Source: " + modeNames[current].split(":")[0], false,
+                v -> Ui.sheet(this, "Recording source", modeNames, indexOf(modes, app.prefs.mode()),
+                        n -> { app.prefs.mode(modes[n]); build(); }).show()));
         int[] days = {0, 7, 30, 90}; String[] dayNames = {"Keep forever", "Delete after 7 days", "Delete after 30 days", "Delete after 90 days"};
         int keep = 0; for (int i = 0; i < days.length; i++) if (days[i] == app.prefs.keepDays()) keep = i;
         card.addView(Ui.button(this, dayNames[keep], false, v -> Ui.sheet(this, "Keep recordings", dayNames, indexOf(days, app.prefs.keepDays()), n -> { app.prefs.keepDays(days[n]); app.io.execute(() -> new RecordingStore(app.recordingsDir()).deleteOlderThan(days[n], System.currentTimeMillis())); build(); }).show()));
