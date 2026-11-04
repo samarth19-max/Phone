@@ -124,7 +124,7 @@ public final class SettingsActivity extends Activity {
             else Toast.makeText(this, "This phone does not offer the phone-app role.", Toast.LENGTH_LONG).show();
         }));
 
-        step(card, 3, access, "Start recording access", "Enables the built-in recorder to capture both sides of a call where the phone supports it. Needs Wireless debugging (Android 11 or newer) and has to be started again after every reboot. Shizuku is an alternative; microphone capture is limited by Android call-audio policy.");
+        step(card, 3, access, "Start recording access", "Enables the built-in recorder to capture both sides of a call where the phone supports it. Needs Wireless debugging (Android 11 or newer) and has to be started again after every reboot. Shizuku is an alternative. On Android 17, recording uses Shizuku or built-in Wireless Debugging, not the ordinary microphone.");
         if (Build.VERSION.SDK_INT >= 37)
             card.addView(Ui.text(this, "Android 17 also asks for Local network access when you start built-in Wireless Debugging recording. It is used for ADB discovery and connection. Revoking it does not stop an already-running shell recorder; use Turn off or Forget pairing to stop that process. Shizuku does not need this permission.", 13, Ui.MUTED));
         switch (builtin) {
