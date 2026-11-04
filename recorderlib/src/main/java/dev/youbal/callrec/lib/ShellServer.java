@@ -105,7 +105,17 @@ public final class ShellServer {
                 try {
                     switch (command.verb) {
                         case "START":
-                            answer = service.start(command.arg(0), command.arg(1), command.arg(2));
+                            String outputDir = command.arg(0);
+                            String number = command.arg(1);
+                            String direction = command.arg(2);
+                            if (!RecordingPath.isAllowedOutputDir(dir, outputDir)) {
+                                answer = "error: output directory is outside the app recordings folder";
+                            } else if (number.length() > 128
+                                    || !("in".equals(direction) || "out".equals(direction) || "call".equals(direction))) {
+                                answer = "error: invalid recording metadata";
+                            } else {
+                                answer = service.start(outputDir, number, direction);
+                            }
                             break;
                         case "STOP":
                             answer = service.stop();
