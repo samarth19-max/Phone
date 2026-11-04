@@ -65,8 +65,11 @@ public final class ShellServer {
                 }
                 // A detached shell recorder must stop when its owning app process disappears.
                 if (service != null && service.isCapturing() && !channel.ownerAlive(now, OWNER_MAX_AGE_MS)) {
-                    service.stop(); // drains the encoder and finalizes the .m4a before exit.
-                    break;
+                    String stopped = service.stop(); // drains the encoder and finalizes the .m4a.
+                    if (!service.isCapturing()) break;
+                    // A blocked audio read did not close in time. Keep the server alive and retry; never claim cleanup succeeded.
+                    sleep(IDLE_MS);
+                    continue;
                 }
                 ControlChannel.Command command = channel.poll();
                 if (command == null) {
@@ -74,8 +77,12 @@ public final class ShellServer {
                     continue;
                 }
                 if ("QUIT".equals(command.verb)) {
-                    // Explicit shutdown also drains any active recording.
+                    // Explicit shutdown drains any active recording. Do not exit if the worker is still alive.
                     String stopped = service == null ? "idle" : service.stop();
+                    if (service != null && service.isCapturing()) {
+                        channel.respond(command.id, "error: capture did not stop; shell server will keep retrying");
+                        continue;
+                    }
                     channel.respond(command.id, "bye");
                     break;
                 }
@@ -104,7 +111,13 @@ public final class ShellServer {
                             answer = service.stop();
                             break;
                         case "RESET":
-                            if (service != null) service.stop();
+                            if (service != null) {
+                                service.stop();
+                                if (service.isCapturing()) {
+                                    answer = "error: previous capture did not stop; shell watchdog will continue retrying";
+                                    break;
+                                }
+                            }
                             answer = "reset";
                             break;
                         default:
