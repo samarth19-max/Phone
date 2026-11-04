@@ -23,14 +23,23 @@ public final class ShellServer {
 
     /** args: control folder, token, path of the app's apk. */
     public static void main(String[] args) {
-        if (args.length < 3) {
-            System.err.println("usage: ShellServer <control dir> <token> <apk>");
+        if (args.length != 3 || !args[1].matches("[a-f0-9]{48}")) {
+            System.err.println("usage: ShellServer <control dir> <48-character token> <apk>");
             return;
         }
         final File dir = new File(args[0]);
         final File apk = new File(args[2]);
+        try {
+            if (!".callrec".equals(dir.getCanonicalFile().getName())
+                    || !apk.isAbsolute() || !apk.isFile() || !dir.mkdirs() && !dir.isDirectory()) {
+                System.err.println("invalid recorder paths");
+                return;
+            }
+        } catch (java.io.IOException e) {
+            System.err.println("invalid recorder paths");
+            return;
+        }
         final ControlChannel channel = new ControlChannel(dir, args[1]);
-        dir.mkdirs();
         if (channel.alive(System.currentTimeMillis(), 3000)) {
             return; // One is already running.
         }
@@ -104,7 +113,7 @@ public final class ShellServer {
                 String answer;
                 try {
                     switch (command.verb) {
-                        case "START":
+                        case "START": {
                             String outputDir = command.arg(0);
                             String number = command.arg(1);
                             String direction = command.arg(2);
@@ -117,6 +126,7 @@ public final class ShellServer {
                                 answer = service.start(outputDir, number, direction);
                             }
                             break;
+                        }
                         case "STOP":
                             answer = service.stop();
                             break;
