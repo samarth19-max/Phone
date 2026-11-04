@@ -46,7 +46,7 @@ jobs:
           grep -Fq 'Keep forever' "$settings"
           grep -Fq 'prefs.getInt("keep_days", 30)' app/src/main/java/dev/youbal/callrecphone/Prefs.java
           grep -Fq 'ownerAlive(now, OWNER_MAX_AGE_MS)' recorderlib/src/main/java/dev/youbal/callrec/lib/ShellServer.java
-          grep -Fq 'service.stop(); // drains the encoder and finalizes the .m4a before exit.' recorderlib/src/main/java/dev/youbal/callrec/lib/ShellServer.java
+          grep -Fq 'String stopped = service.stop();' recorderlib/src/main/java/dev/youbal/callrec/lib/ShellServer.java
           grep -Fq 'case "RESET":' recorderlib/src/main/java/dev/youbal/callrec/lib/ShellServer.java
           grep -Fq 'resetCapture(Context context, ResetListener listener)' recorderlib/src/main/java/dev/youbal/callrec/lib/BuiltinAccess.java
           grep -Fq 'public static void heartbeat(Context context)' recorderlib/src/main/java/dev/youbal/callrec/lib/BuiltinAccess.java
@@ -65,6 +65,12 @@ jobs:
           ! grep -Fq 'manager.autoConnect' "$builtin"
           grep -Fq 'private static final Object REQUEST_LOCK' "$channel"
           grep -Fq 'requestsFromDifferentInstancesAreSerialized' "$tests"
+          grep -Fq 'private static boolean validCommand' "$channel"
+          grep -Fq 'ShellCommand.quote(apk)' "$builtin"
+          grep -Fq 'RecordingPath.isAllowedOutputDir(dir, outputDir)' recorderlib/src/main/java/dev/youbal/callrec/lib/ShellServer.java
+          grep -Fq 'shellRejectsUnknownCommandsAndWrongArgumentCounts' "$tests"
+          grep -Fq 'escapesSingleQuotesWithoutLeavingTheArgument' recorderlib/src/test/java/dev/youbal/callrec/lib/ShellCommandTest.java
+          grep -Fq 'acceptsOnlySiblingRecordingsDirectory' recorderlib/src/test/java/dev/youbal/callrec/lib/RecordingPathTest.java
       - name: Verify patched cryptography dependencies
         shell: bash
         run: |
