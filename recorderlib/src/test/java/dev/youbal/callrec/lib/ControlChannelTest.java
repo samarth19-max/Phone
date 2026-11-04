@@ -9,12 +9,24 @@ import static org.junit.Assert.fail;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.util.ArrayList;
+import java.util.List;
 import org.junit.Test;
 
 public class ControlChannelTest {
 
     private static File dir() throws IOException {
         return Files.createTempDirectory("callrec-ctl").toFile();
+    }
+
+
+    private static void writeCommand(File dir, String token, String id, String verb, String... args) throws IOException {
+        List<String> fields = new ArrayList<>();
+        fields.add(id);
+        fields.add(verb);
+        for (String arg : args) fields.add(arg);
+        fields.add(ControlChannel.mac(token, fields));
+        Files.write(new File(dir, "cmd").toPath(), String.join("\n", fields).getBytes(java.nio.charset.StandardCharsets.UTF_8));
     }
 
     /** A stand-in for the recorder process: answers one request in a second thread. */
@@ -163,9 +175,10 @@ public class ControlChannelTest {
     public void shellRejectsUnknownCommandsAndWrongArgumentCounts() throws Exception {
         File d = dir();
         ControlChannel shell = new ControlChannel(d, "secret");
-        Files.write(new File(d, "cmd").toPath(), "secret\nabc123\nEXEC\nwhoami".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        String id = "0123456789abcdef0123456789abcdef";
+        writeCommand(d, "secret", id, "EXEC", "whoami");
         assertNull(shell.poll());
-        Files.write(new File(d, "cmd").toPath(), "secret\nabc123\nSTART\nonly-one-argument".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        writeCommand(d, "secret", id, "START", "only-one-argument");
         assertNull(shell.poll());
     }
 
@@ -176,6 +189,36 @@ public class ControlChannelTest {
         byte[] oversized = new byte[20 * 1024];
         Files.write(new File(d, "cmd").toPath(), oversized);
         assertNull(shell.poll());
+    }
+
+
+    @Test
+    public void shellRejectsTamperedAndReplayedCommands() throws Exception {
+        File d = dir();
+        ControlChannel shell = new ControlChannel(d, "secret");
+        String id = "abcdef0123456789abcdef0123456789";
+        writeCommand(d, "secret", id, "PING");
+        assertEquals("PING", shell.poll().verb);
+        writeCommand(d, "secret", id, "PING");
+        assertNull(shell.poll());
+
+        String otherId = "0123456789abcdef0123456789abcdef";
+        writeCommand(d, "secret", otherId, "PING");
+        File cmd = new File(d, "cmd");
+        String tampered = new String(Files.readAllBytes(cmd.toPath()), java.nio.charset.StandardCharsets.UTF_8)
+                .replace("PING", "STOP");
+        Files.write(cmd.toPath(), tampered.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        assertNull(shell.poll());
+    }
+
+    @Test
+    public void ownerLeaseDoesNotWriteTheSecretIntoSharedStorage() throws Exception {
+        File d = dir();
+        ControlChannel app = new ControlChannel(d, "secret");
+        app.beatOwner(1_000_000);
+        String owner = new String(Files.readAllBytes(new File(d, "owner").toPath()), java.nio.charset.StandardCharsets.UTF_8);
+        assertFalse(owner.contains("secret"));
+        assertEquals(2, owner.split("\n").length);
     }
 
 }
