@@ -54,6 +54,17 @@ jobs:
           grep -Fq 'captureRecoveryPending' app/src/main/java/dev/youbal/callrecphone/CallService.java
           grep -Fq 'ownerLeaseRequiresMatchingTokenAndExpires' recorderlib/src/test/java/dev/youbal/callrec/lib/ControlChannelTest.java
           grep -Fq 'android:maxSdkVersion="36"' recorderlib/src/main/AndroidManifest.xml
+      - name: Verify TLS-only Wireless Debugging and serialized control channel
+        shell: bash
+        run: |
+          set -euo pipefail
+          builtin="recorderlib/src/main/java/dev/youbal/callrec/lib/BuiltinAccess.java"
+          channel="recorderlib/src/main/java/dev/youbal/callrec/lib/ControlChannel.java"
+          tests="recorderlib/src/test/java/dev/youbal/callrec/lib/ControlChannelTest.java"
+          grep -Fq 'manager.connectTls(app, 12_000)' "$builtin"
+          ! grep -Fq 'manager.autoConnect' "$builtin"
+          grep -Fq 'private static final Object REQUEST_LOCK' "$channel"
+          grep -Fq 'requestsFromDifferentInstancesAreSerialized' "$tests"
       - name: Verify patched cryptography dependencies
         shell: bash
         run: |
