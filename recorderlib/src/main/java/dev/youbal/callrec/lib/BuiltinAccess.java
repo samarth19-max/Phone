@@ -281,8 +281,9 @@ public final class BuiltinAccess {
         String dir = controlDir(context).getAbsolutePath();
         String token = token(context);
         // setsid + nohup keep it alive after this wireless-debugging session closes.
-        return "CLASSPATH='" + apk + "' nohup setsid app_process /system/bin --nice-name=callrec_server "
-                + ShellServer.class.getName() + " '" + dir + "' " + token + " '" + apk + "' </dev/null >/dev/null 2>&1 &";
+        return "CLASSPATH=" + ShellCommand.quote(apk) + " nohup setsid app_process /system/bin --nice-name=callrec_server "
+                + ShellServer.class.getName() + " " + ShellCommand.quote(dir) + " " + ShellCommand.quote(token)
+                + " " + ShellCommand.quote(apk) + " </dev/null >/dev/null 2>&1 &";
     }
 
     /** Runs a shell command and waits for it to finish; the recorder itself keeps running in the background. */
